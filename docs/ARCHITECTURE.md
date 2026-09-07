@@ -1,5 +1,7 @@
 # Web 架构
 
+改造方向、官方算法移植范围和公司资产库方案见 [Web 版改造计划](TRANSFORMATION-PLAN.md)。本文描述**当前**运行边界，不替代改造计划。
+
 ## 1. 组件
 
 - `client/`：React 19 + Vite 7，只负责 UI、请求编排和 SSE 展示。
