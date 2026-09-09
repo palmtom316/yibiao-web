@@ -1,0 +1,15 @@
+name: Verify
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: npm install --global npm@10.9.3 pnpm@10.17.1
+      - run: npm ci && npm run typecheck && npm run build && npm test
+        working-directory: client
+      - run: pnpm install --frozen-lockfile && pnpm exec prisma generate && pnpm run typecheck && pnpm run build && pnpm test
+        working-directory: server

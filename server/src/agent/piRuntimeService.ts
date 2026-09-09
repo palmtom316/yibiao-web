@@ -1,3 +1,4 @@
+import { currentProcessingScope, type ProcessingScope } from '../security/processing';
 // Pi Agent 运行时编排器（移植自桌面 electron/services/pi/piRuntimeService.cjs）。
 // 职责：进程级单例 AI Proxy 生命周期 + 单飞任务执行（runTask）+ 重试 + 活动看门狗 +
 // 健康巡检 + ask-user 提问通道 + 自检。
@@ -120,6 +121,7 @@ interface ActiveTask {
   user_question_answers: Array<Record<string, unknown>>;
   workspace_dir: string;
   project_id: number | undefined;
+  processingScope?: ProcessingScope;
 }
 
 interface DiagnosticEvent {
@@ -576,6 +578,7 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
       user_question_answers: [],
       workspace_dir: input.workspaceDir,
       project_id: input.projectId,
+      processingScope: currentProcessingScope(),
     };
   }
 
@@ -682,7 +685,7 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
         onActivity: touchActivity,
         getActivityContext: () =>
           activeTask
-            ? { task_token: activeTask.activity_token, task_id: activeTask.task_id }
+            ? { task_token: activeTask.activity_token, task_id: activeTask.task_id, processingScope: activeTask.processingScope }
             : null,
       });
       const started = await proxy.start();
@@ -995,8 +998,10 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
     });
   }
 
-  function getPendingQuestion(): AgentPendingQuestion | null {
+  function getPendingQuestion(filter?: { projectId?: number; questionId?: string }): AgentPendingQuestion | null {
     for (const entry of pendingQuestions.values()) {
+      if (filter?.projectId !== undefined && entry.question.project_id !== filter.projectId) continue;
+      if (filter?.questionId !== undefined && entry.question.question_id !== filter.questionId) continue;
       return entry.question;
     }
     return null;
@@ -1007,6 +1012,9 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
     if (!entry) {
       return { answered: false };
     }
+    const option = entry.options.find((item) => item.id === payload.option_id);
+    if (!option) throw new Error('回答选项无效');
+    if (option.custom && !payload.custom_answer?.trim()) throw new Error('请填写具体要求');
     entry.resolve({ option_id: payload.option_id, custom_answer: payload.custom_answer, answer_payload: payload.answer_payload });
     return { answered: true };
   }
@@ -1230,6 +1238,10 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
       sessionsDir: input.sessionsDir,
       sessionFile: input.sessionFile,
       requestUserQuestion,
+      reportTaskFailure: (reason) => {
+        const error = Object.assign(new Error(reason), { code: 'AGENT_REPORTED_FAILURE' });
+        activeTaskAbortController?.abort(error);
+      },
     });
     const session = created.session as unknown as PiSessionRuntime;
     input.onSessionCreated(session, created.snapshot);
@@ -1286,7 +1298,8 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
             retry_count: input.retryAttempts.length,
             retry_attempts: [...input.retryAttempts],
           };
-        } catch (error) {
+        } catch (caught) {
+          const error = input.signal.aborted ? (input.signal.reason || caught) : caught;
           if (isUserCancelOrPause(error) || input.signal?.aborted || attemptIndex >= input.maxRetries) {
             if (error && typeof error === 'object') {
               (error as Record<string, unknown>).agentRetryAttempts = [...input.retryAttempts];

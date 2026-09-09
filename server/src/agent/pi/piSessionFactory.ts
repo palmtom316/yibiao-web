@@ -2,6 +2,8 @@
 // 动态 import ESM SDK（惰性缓存），注册 yibiao provider 指向 aiProxy，装 8 工具（含 3 自定义），createAgentSession。
 // 动态 import 而非静态：opencode 回退路径永不加载 pi SDK（包缺失时仅 pi boot 失败，不崩主服务）。
 
+import { createSafeFileTools } from './safeFileTools';
+import { createPiTaskFailureTool } from './piTaskFailureTool';
 import { createPiJsonValidationTool, type PiTypeBuilder } from './piJsonValidationTool';
 import { createPiUserQuestionTool, type RequestUserQuestion } from './piUserQuestionTool';
 import { createPiRetryErrorNormalizer } from './piRetryErrorNormalizer';
@@ -134,6 +136,7 @@ export interface CreatePiSessionParams {
   timeoutMs: number;
   jsonValidationSchemas?: Record<string, object>;
   requestUserQuestion: RequestUserQuestion;
+  reportTaskFailure?: (reason: string) => void;
 }
 
 export interface PiSessionSnapshot {
@@ -239,15 +242,7 @@ export async function createPiSession(params: CreatePiSessionParams): Promise<Pi
   });
   await resourceLoader.reload();
 
-  const bashTool = codingAgent.createBashToolDefinition(workspaceDir, {
-    shellPath: environment.shellPath,
-    commandPrefix: environment.shellCommandPrefix,
-    spawnHook: ({ command, cwd, env }: { command: string; cwd: string; env: Record<string, unknown> }) => ({
-      command,
-      cwd,
-      env: { ...env, ...environment.env },
-    }),
-  });
+  const fileTools = createSafeFileTools(workspaceDir, typebox.Type).map((tool) => codingAgent.defineTool(tool));
   const jsonValidationTool = codingAgent.defineTool(
     createPiJsonValidationTool({
       workspaceDir,
@@ -261,6 +256,7 @@ export async function createPiSession(params: CreatePiSessionParams): Promise<Pi
       requestUserQuestion,
     }),
   );
+  const failureTools = params.reportTaskFailure ? [codingAgent.defineTool(createPiTaskFailureTool(typebox.Type, params.reportTaskFailure))] : [];
 
   const sessionManager = sessionFile
     ? codingAgent.SessionManager.open(sessionFile, sessionsDir!, workspaceDir)
@@ -274,8 +270,8 @@ export async function createPiSession(params: CreatePiSessionParams): Promise<Pi
     model,
     modelRuntime,
     thinkingLevel: 'off',
-    tools: ['read', 'bash', 'edit', 'write', 'find', 'ls', 'json-validation', 'ask-user'],
-    customTools: [bashTool, jsonValidationTool, userQuestionTool],
+    tools: ['read', 'edit', 'write', 'ls', 'json-validation', 'ask-user', ...(failureTools.length ? ['report-failure'] : [])],
+    customTools: [...fileTools, jsonValidationTool, userQuestionTool, ...failureTools],
     resourceLoader,
     settingsManager,
     sessionManager,

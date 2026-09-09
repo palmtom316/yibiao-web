@@ -1,0 +1,11 @@
+{
+  "client-audit-before.json": "df7e9f655fa7faa3637534e08d1756e26a19d777ce74359932f28d3ce6ff64ac",
+  "client-audit-runtime-after.json": "7c648f61b3a828b0049cfad13b23f59db5921416c9748c84ef3354d889348294",
+  "faults.json": "c47bbc3224c7ca67a73bfb2053befcd12f090220ff53e061a7dd9d94d731730b",
+  "final-backup-summary.json": "c9479f902131f3e8df27882178da7d91b1585cf19d3a4abfde7f6eaf85cba344",
+  "legacy-personnel-dry-run.json": "711d35cfc0ab64b806aca962129cbbc5c5c84a66deb2ba05e09137affa4dd743",
+  "rollback-source-manifest.json": "9b63edbd5259c42e33e84bf4778d68954ebff1f21093f025180b332cf98f864c",
+  "yibiao-client-tests.tap": "adce82c5cb68bb48f9e9a25e05a65618a30966ebc02869a5231af9aa0c459a57",
+  "yibiao-integration-tests.tap": "17c9440b9374b52dd2cf00a9582e5594f6303e153b31401785882274e18814c1",
+  "yibiao-server-tests.tap": "d933fa5a45a5446ba2accd3457aadbcba5d38ea22df1fdff6dfde2cb40061a7b"
+}

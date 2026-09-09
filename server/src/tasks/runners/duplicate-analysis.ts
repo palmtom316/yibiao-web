@@ -1,3 +1,5 @@
+import { currentProcessingScope } from '../../security/processing';
+import { readBoundedFile, ResourceAccessError } from '../../security/files';
 // L4 runner #63：duplicate-analysis（标书查重分析）。
 // 移植自 client/electron/services/duplicateCheckService.cjs:2100-2816（工厂编排）。
 //
@@ -53,7 +55,7 @@ interface DuplicateCheckWorkspaceStore {
   updateDuplicateCheck(partial: Record<string, any>): Promise<Record<string, any>>;
 }
 
-const developerLogger = { write() {} };
+const developerLogger = { write(_event: string, _payload?: unknown) {} };
 
 type SectionKey = 'metadataAnalysis' | 'outlineAnalysis' | 'contentAnalysis' | 'imageAnalysis';
 type Notify = (state: Record<string, any>) => Promise<void>;
@@ -182,7 +184,13 @@ async function readContentMarkdown(contentFiles: Record<string, unknown>[], file
   const item = contentFiles.find((entry) => entry.file_id === fileId && entry.status === 'success' && entry.content_path);
   if (!item) throw new Error('正文内容尚未成功提取，无法进行分析');
   const nodeFs = await import('node:fs/promises');
-  return nodeFs.readFile(item.content_path as string, 'utf-8');
+  const scope = currentProcessingScope();
+  if (scope?.kind !== 'project') throw new ResourceAccessError();
+  const { createWorkspacePaths } = await import('../../document/paths');
+  const root = createWorkspacePaths(scope.projectId).workspaceDir;
+  const nodePath = await import('node:path');
+  const relative = nodePath.isAbsolute(String(item.content_path)) ? nodePath.relative(root, String(item.content_path)) : String(item.content_path);
+  return readBoundedFile(root, relative).toString('utf8');
 }
 
 async function readCombinedTenderMarkdown(contentFiles: Record<string, unknown>[], tenderFiles: DuplicateFile[]): Promise<string> {
@@ -357,7 +365,11 @@ async function runContentDuplicateAnalysis(
       const sentences = splitContentSentences(markdown);
       totalSentenceCount += sentences.length;
       const local = new Map<string, { sentence: string; count: number; order: number }>();
-      for (const sentence of sentences) {
+      for (const [sentenceIndex, sentence] of sentences.entries()) {
+        if (sentenceIndex > 0 && sentenceIndex % 500 === 0) {
+          await updateAnalysisSection(workspaceStore, 'contentAnalysis', { status: 'running', progress: Math.min(89, Math.round(5 + ((i + sentenceIndex / sentences.length) / bidFiles.length) * 80)), message: `正文比对 ${i + 1}/${bidFiles.length}（${sentenceIndex}/${sentences.length} 句）` }, notify, isCurrent);
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
         const tenderMatch = tenderMatcher.match(sentence);
         if (tenderMatch) {
           tenderMatchedSentenceCount += 1;
@@ -495,6 +507,8 @@ async function runPipeline(
     await updateAnalysisSection(workspaceStore, 'contentAnalysis', { status: 'running', progress: 1, message: '元数据提取完成，等待正文内容用于正文比对', extraction: { status: 'running', completed: 0, total: bidFiles.length } }, notify, isCurrent);
     await updateAnalysisSection(workspaceStore, 'imageAnalysis', { status: 'running', progress: 1, message: '元数据提取完成，等待正文内容用于图片比对', extraction: { status: 'running', completed: 0, total: bidFiles.length } }, notify, isCurrent);
     const contentFiles = await contentPromise;
+    const metadataFailed = contentFiles.some((item) => item.status === 'error') || metadataFiles.some((item) => item.status === 'error');
+    await updateAnalysisSection(workspaceStore, 'metadataAnalysis', { status: metadataFailed ? 'error' : 'success', progress: 100, message: metadataFailed ? '部分文件提取失败' : '元数据分析完成' }, notify, isCurrent);
     const [outlineFiles, contentResult, imageResult] = await Promise.all([
       runOutlineAnalysis(workspaceStore, tenderFiles, bidFiles, contentFiles, notify, isCurrent),
       runContentDuplicateAnalysis(workspaceStore, tenderFiles, bidFiles, contentFiles, notify, isCurrent),
@@ -505,7 +519,6 @@ async function runPipeline(
       || outlineFiles.some((item) => item.status === 'error')
       || contentResult.status === 'error'
       || imageResult.status === 'error';
-    await updateAnalysisSection(workspaceStore, 'metadataAnalysis', { status: failed ? 'error' : 'success', progress: 100, message: failed ? '部分文件分析失败' : '元数据分析完成' }, notify, isCurrent);
     developerLogger.write('duplicate.pipeline.completed', { signature, status: failed ? 'error' : 'success', content_extraction: summarizeResultStatus(contentFiles as { status?: string }[]), metadata_extraction: summarizeResultStatus(metadataFiles), outline_analysis: summarizeResultStatus(outlineFiles), content_duplicate_status: contentResult.status, image_duplicate_status: imageResult.status });
     return failed ? 'error' : 'success';
   } catch (error) {

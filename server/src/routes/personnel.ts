@@ -1,3 +1,7 @@
+import { ApiError } from '../security/access';
+import { getUserId } from '../auth/middleware';
+import { ledgerFields } from '../ledger/multipart';
+import { expectedVersion } from '../ledger/validation';
 // 人员资质库路由（受保护 + 模块门禁 knowledge-base，公司共享）。
 // 人物档案 1→N 证书：每证书独立 certName/certType/expiryDate/obtainedAt/notes + 多文件。
 // 写操作 multipart；文件落 <dataDir>/shared/personnel/<profileId>/<certId>/<fileId><ext>。
@@ -7,7 +11,7 @@ import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fast
 import type { PrismaClient } from '@prisma/client';
 import { createPersonnelStore, type ExpiryFilter } from '../personnel/store';
 import { getPersonnelCertFile } from '../document/paths';
-import { mimeFor, collectAssetParts, persistUploaded, asString, asStringList } from '../asset-library/multipart';
+import { mimeFor, collectAssetParts, withUploadedFiles, asString, asStringList } from '../asset-library/multipart';
 
 function parseExpiry(raw: unknown): ExpiryFilter | undefined {
   const v = asString(raw as string | string[] | undefined);
@@ -48,7 +52,7 @@ export async function personnelRoutes(app: FastifyInstance, _opts: FastifyPlugin
       phone: asString(fields.phone),
       notes: asString(fields.notes),
       tags: asStringList(fields.tags),
-    });
+    }, getUserId(req));
     return { profile };
   });
 
@@ -67,20 +71,21 @@ export async function personnelRoutes(app: FastifyInstance, _opts: FastifyPlugin
     if (!existing) return reply.code(404).send({ success: false, message: '人员不存在' });
     const { fields } = await collectAssetParts(req);
     const profile = await store.updateProfile(id, {
+      version: expectedVersion(asString(fields.version)),
       name: fields.name !== undefined ? asString(fields.name) : undefined,
       department: fields.department !== undefined ? asString(fields.department) : undefined,
       position: fields.position !== undefined ? asString(fields.position) : undefined,
       phone: fields.phone !== undefined ? asString(fields.phone) : undefined,
       notes: fields.notes !== undefined ? asString(fields.notes) : undefined,
       tags: fields.tags !== undefined ? asStringList(fields.tags) : undefined,
-    });
+    }, getUserId(req));
     return { profile };
   });
 
   // DELETE /personnel/:id → { success }
   app.delete('/personnel/:id', async (req) => {
     const { id } = (req as FastifyRequest & { params: { id: string } }).params;
-    await store.deleteProfile(id);
+    await store.deleteProfile(id, (req.query as any).version, getUserId(req), (req.query as any).permanent === 'true');
     return { success: true };
   });
 
@@ -94,15 +99,15 @@ export async function personnelRoutes(app: FastifyInstance, _opts: FastifyPlugin
     if (!certName) return reply.code(400).send({ success: false, message: '证书名称不能为空' });
 
     let certificate = await store.addCertificate(id, {
+      ...ledgerFields(fields, true),
       certName,
       certType: asString(fields.certType),
       expiryDate: asString(fields.expiryDate) || null,
       obtainedAt: asString(fields.obtainedAt) || null,
       notes: asString(fields.notes),
-    });
+    }, getUserId(req));
     if (files.length) {
-      const metas = await persistUploaded(files, (fid, ext) => getPersonnelCertFile(undefined, id, certificate.id, fid, ext));
-      certificate = await store.updateCertificate(id, certificate.id, { files: metas });
+      certificate = await withUploadedFiles(files, (fid, ext) => getPersonnelCertFile(undefined, id, certificate.id, fid, ext), (metas) => store.updateCertificate(id, certificate.id, { files: metas, version: certificate.version }, getUserId(req)));
     }
     const refreshed = await store.getProfile(id);
     return { certificate, profile: refreshed };
@@ -114,23 +119,23 @@ export async function personnelRoutes(app: FastifyInstance, _opts: FastifyPlugin
     const current = await store.getCertificate(id, certId);
     if (!current) return reply.code(404).send({ success: false, message: '证书不存在' });
     const { fields, files } = await collectAssetParts(req);
+    if (expectedVersion(asString(fields.version)) !== current.version) throw new ApiError(409, '证书已被更新，请刷新');
     const removeFileIds = asStringList(fields.removeFileIds);
-    const newMetas = files.length ? await persistUploaded(files, (fid, ext) => getPersonnelCertFile(undefined, id, certId, fid, ext)) : [];
-    const finalFiles = [...current.files.filter((f) => !removeFileIds.includes(f.fileId)), ...newMetas];
-
-    for (const fid of removeFileIds) {
-      const meta = current.files.find((f) => f.fileId === fid);
-      if (meta) await fsp.rm(getPersonnelCertFile(undefined, id, certId, meta.fileId, meta.ext), { force: true }).catch(() => undefined);
-    }
-
-    const certificate = await store.updateCertificate(id, certId, {
+    const certificate = await withUploadedFiles(files, (fid, ext) => getPersonnelCertFile(undefined, id, certId, fid, ext), (newMetas) => store.updateCertificate(id, certId, {
+      ...ledgerFields(fields, true),
+      version: expectedVersion(asString(fields.version)),
       certName: fields.certName !== undefined ? asString(fields.certName) : undefined,
       certType: fields.certType !== undefined ? asString(fields.certType) : undefined,
       expiryDate: fields.expiryDate !== undefined ? (asString(fields.expiryDate) || null) : undefined,
       obtainedAt: fields.obtainedAt !== undefined ? (asString(fields.obtainedAt) || null) : undefined,
       notes: fields.notes !== undefined ? asString(fields.notes) : undefined,
-      files: finalFiles,
-    });
+      files: [...current.files.filter((f) => !removeFileIds.includes(f.fileId)), ...newMetas],
+    }, getUserId(req)));
+    for (const fid of removeFileIds) {
+      const meta = current.files.find((f) => f.fileId === fid);
+      if (meta) await fsp.rm(getPersonnelCertFile(undefined, id, certId, meta.fileId, meta.ext), { force: true }).catch(() => undefined);
+    }
+
     const profile = await store.getProfile(id);
     return { certificate, profile };
   });
@@ -138,7 +143,7 @@ export async function personnelRoutes(app: FastifyInstance, _opts: FastifyPlugin
   // DELETE /personnel/:id/certificates/:certId → { success, profile }
   app.delete('/personnel/:id/certificates/:certId', async (req) => {
     const { id, certId } = (req as FastifyRequest & { params: { id: string; certId: string } }).params;
-    await store.deleteCertificate(id, certId);
+    await store.deleteCertificate(id, certId, (req.query as any).version, getUserId(req), (req.query as any).permanent === 'true');
     const profile = await store.getProfile(id);
     return { success: true, profile };
   });
@@ -157,7 +162,9 @@ export async function personnelRoutes(app: FastifyInstance, _opts: FastifyPlugin
       return reply.code(404).send({ success: false, message: '文件不存在' });
     }
     const isDownload = (req as FastifyRequest & { query: { download?: string } }).query.download === '1';
-    reply.header('Content-Type', meta.mimeType || mimeFor(meta.originalName));
+    reply.header('Content-Type', mimeFor(meta.originalName));
+    reply.header('Content-Security-Policy', "sandbox; default-src 'none'");
+    reply.header('X-Content-Type-Options', 'nosniff');
     if (isDownload) {
       const safeName = encodeURIComponent(meta.originalName);
       reply.header('Content-Disposition', `attachment; filename*=UTF-8''${safeName}`);

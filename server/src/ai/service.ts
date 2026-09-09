@@ -6,6 +6,7 @@
 //  - emitAiHttpErrorToWindows → 进程内订阅者（M1-P6 SSE 总线 fan-out）。
 //  - 生图（generateImage/saveGeneratedImage/downloadImage）延后到 M1-P5，此处不移植。
 //  - chat/requestJson 内部仍按 config.request_mode 走上游流式，但对外返回聚合后的完整字符串/JSON（与桌面 IPC 一致）。
+import { processingFetch, withConfigScope, withProcessingScope, currentProcessingScope } from '../security/processing';
 import { runWithAiRetry, markAiRequestError, copyAiRequestErrorMeta } from './retry';
 import {
   copyAiHttpError,
@@ -178,42 +179,7 @@ function normalizeAnalyticsEndpointHost(baseUrl: any): string {
 }
 
 // 分析上报：best-effort，失败静默。app.getVersion 在 Web 取 'web'。
-function trackAiRequest(app: any, config: any, payload: any): void {
-  void Promise.resolve()
-    .then(() => {
-      const imageConfig = config.image_model || {};
-      const requestType = payload.ai_request_type || '';
-      const tokenUsage = normalizeTokenUsage(payload.usage);
-      const modelProvider = requestType === 'image' ? imageConfig.provider || '' : config.text_model_provider || '';
-      const modelBaseUrl = requestType === 'image' ? imageConfig.base_url || '' : config.base_url || '';
-      const modelEndpointHost = normalizeAnalyticsEndpointHost(modelBaseUrl);
-      const modelName = requestType === 'image' ? imageConfig.model_name || '' : config.model_name || '';
-      const body = {
-        projectName: ANALYTICS_PROJECT_NAME,
-        event: 'ai_request',
-        version: typeof app?.getVersion === 'function' ? app.getVersion() : '',
-        platform: process.platform,
-        arch: process.arch,
-        client_id: config.analytics_client_id || '',
-        client_created_at: config.analytics_created_at || '',
-        ai_request_type: requestType,
-        ai_model_provider: modelProvider,
-        ai_model_base_url: modelEndpointHost,
-        ai_model_name: modelName,
-        prompt_tokens: tokenUsage.prompt_tokens,
-        completion_tokens: tokenUsage.completion_tokens,
-        total_tokens: tokenUsage.total_tokens,
-        text_model_name: requestType === 'text' ? modelName : '',
-        image_model_name: requestType === 'image' ? modelName : '',
-      };
-      return fetch(ANALYTICS_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-    })
-    .catch(() => undefined);
-}
+function trackAiRequest(_app: any, _config: any, _payload: any): void { /* Web deployment never sends analytics. */ }
 
 // dev-mode token 统计：Web 版暂 no-op（P8 接入服务端存储后恢复）。
 function recordTextTokenStats(_config: any, _usage: any): void { /* no-op */ }
@@ -476,7 +442,7 @@ async function fetchChatCompletion(_app: any, config: any, body: any, options: {
   const timer = controller ? setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS) : null;
   const baseUrl = requireBaseUrl(config.base_url, '请先在设置中配置文本模型 Base URL');
   try {
-    return await fetch(`${baseUrl}/chat/completions`, {
+    return await processingFetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: createHeaders(config.api_key),
       body: JSON.stringify(body),
@@ -804,7 +770,7 @@ export async function listModelsWithConfig(config: any): Promise<{ success: bool
     data = await runWithAiRetry(async () => {
       let response: any = null;
       try {
-        response = await fetch(`${trimBaseUrl(config.base_url)}/models`, { method: 'GET', headers: createHeaders(config.api_key) });
+        response = await processingFetch(`${trimBaseUrl(config.base_url)}/models`, { method: 'GET', headers: createHeaders(config.api_key) });
       } catch (error: any) {
         throw markAiRequestError(error, { retryable: true });
       }
@@ -831,7 +797,7 @@ export async function listModelsWithConfig(config: any): Promise<{ success: bool
 async function fetchOpenAICompatibleImageResponse(baseUrl: string, apiKey: any, requestBody: any, fallbackMessage: string, options: { signal?: AbortSignal; source?: string } = {}): Promise<any> {
   const sendRequest = async (body: any) => {
     try {
-      return await fetch(`${baseUrl}/images/generations`, {
+      return await processingFetch(`${baseUrl}/images/generations`, {
         method: 'POST', headers: createHeaders(apiKey), body: JSON.stringify(body), signal: options.signal as any,
       });
     } catch (error: any) {
@@ -996,7 +962,7 @@ async function readGoogleImageStream(response: any) {
 async function requestGoogleImageData(baseUrl: string, imageConfig: any, requestBody: any, requestMode: 'stream' | 'normal', fallbackMessage: string, options: { signal?: AbortSignal } = {}): Promise<any> {
   let response: any = null;
   try {
-    response = await fetch(createGoogleImageUrl(baseUrl, imageConfig.model_name, requestMode), {
+    response = await processingFetch(createGoogleImageUrl(baseUrl, imageConfig.model_name, requestMode), {
       method: 'POST', headers: createGoogleHeaders(imageConfig.api_key), body: JSON.stringify(requestBody), signal: options.signal as any,
     });
   } catch (error: any) {
@@ -1095,27 +1061,28 @@ export function getAiService(): AiService {
   }
 
   function enqueueTextRequest(request: any, runner: (ctx: { attempt: number; maxAttempts: number }) => Promise<any>): Promise<any> {
-    return textRequestQueue.enqueue(runner, { scopeId: getQueueScopeId(request) });
+    const scope = currentProcessingScope();
+    return textRequestQueue.enqueue((ctx) => scope ? withProcessingScope(scope, () => runner(ctx)) : runner(ctx), { scopeId: getQueueScopeId(request) });
   }
 
   singleton = {
     async chat(config: any, request: any): Promise<string> {
-      return enqueueTextRequest(request, async () => chatWithConfig(STUB_APP, config, request));
+      return enqueueTextRequest(request, async () => withConfigScope(config, () => chatWithConfig(STUB_APP, config, request)));
     },
     async requestJson(config: any, request: any): Promise<any> {
-      return enqueueTextRequest(request, async () => collectJsonResponseWithConfig(STUB_APP, config, request));
+      return enqueueTextRequest(request, async () => withConfigScope(config, () => collectJsonResponseWithConfig(STUB_APP, config, request)));
     },
     async collectJsonResponse(config: any, request: any): Promise<any> {
-      return enqueueTextRequest(request, async () => collectJsonResponseWithConfig(STUB_APP, config, request));
+      return enqueueTextRequest(request, async () => withConfigScope(config, () => collectJsonResponseWithConfig(STUB_APP, config, request)));
     },
     async parseJsonResponseContent(config: any, request: any, content: any): Promise<any> {
-      return enqueueTextRequest(request, async () => parseOrRepairJsonResponseWithConfig(STUB_APP, config, request, content));
+      return enqueueTextRequest(request, async () => withConfigScope(config, () => parseOrRepairJsonResponseWithConfig(STUB_APP, config, request, content)));
     },
     async listModels(config: any): Promise<{ success: boolean; message: string; models: string[] }> {
-      return listModelsWithConfig(config);
+      return withConfigScope(config, () => listModelsWithConfig(config));
     },
     async testImageModel(config: any): Promise<any> {
-      return testImageModelWithConfig(STUB_APP, config);
+      return withConfigScope(config, () => testImageModelWithConfig(STUB_APP, config));
     },
     getTextQueueStatus() { return textRequestQueue.getStatus(); },
     pauseQueueScope(scopeId: string) { return textRequestQueue.pauseScope(scopeId); },

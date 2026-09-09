@@ -1,0 +1,8 @@
+services:
+  app:
+    image: yibiao-transform-app:latest
+  migrate:
+    image: yibiao-transform-migrate:latest
+  nginx:
+    image: yibiao-transform-nginx:latest
+    ports: !override ["127.0.0.1:54445:443"]

@@ -69,6 +69,21 @@ export async function verifyToken(req: FastifyRequest, reply: FastifyReply): Pro
   }
 }
 
+// JWT proves identity; current database state determines status, role and forced-password gate.
+export function createVerifyToken(prisma: PrismaClient) {
+  return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    await verifyToken(req, reply);
+    if (reply.sent) return;
+    const identity = getUser(req);
+    const user = await prisma.user.findUnique({ where: { id: identity.id } });
+    if (!user || user.status !== 'active' || user.mustChangePassword) {
+      reply.code(401).send({ error: '账号不可用或需要重新登录' });
+      return;
+    }
+    Object.assign(identity, { username: user.username, role: user.role });
+  };
+}
+
 // 携带 projectId 的请求类型（requireProject 成功后挂载）。
 export type ProjectScopedRequest = FastifyRequest & { user: JwtPayload; projectId: number };
 
@@ -118,7 +133,7 @@ export function createRequireProject(prisma: PrismaClient) {
     const raw = req.headers['x-project-id'];
     const headerValue = Array.isArray(raw) ? raw[0] : raw;
     const projectId = Number(headerValue);
-    if (!Number.isFinite(projectId) || projectId <= 0) {
+    if (!Number.isSafeInteger(projectId) || projectId <= 0) {
       reply.code(400).send({ error: '缺少有效的 X-Project-Id 请求头' });
       return;
     }

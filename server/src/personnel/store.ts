@@ -1,3 +1,6 @@
+import { normalizeLedger, expectedVersion, parseDate, businessDate, type LedgerFields } from '../ledger/validation';
+import { audit, assertSourceUnlinked } from '../ledger/lifecycle';
+import { ApiError } from '../security/access';
 // 人员资质库存储层（一人多证）：PersonnelProfile 1→N PersonnelCertificate。
 // 公司共享（无 userId 隔离）。证书 files 存 JSON 元数据；文件字节由路由落 <dataDir>/shared/personnel/<profileId>/<certId>/。
 // 到期按各证书 expiryDate 独立计算；null 表示不参与提醒。
@@ -9,7 +12,8 @@ import type { AssetFileMeta } from '../asset-library/store';
 export const EXPIRY_WINDOW_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export interface PersonnelCertificate {
+export interface PersonnelCertificate extends LedgerFields {
+  version: number;
   id: string;
   profileId: string;
   certName: string;
@@ -23,6 +27,8 @@ export interface PersonnelCertificate {
 }
 
 export interface PersonnelProfile {
+  version: number;
+  archivedAt?: string | null;
   id: string;
   name: string;
   department: string;
@@ -65,20 +71,12 @@ function toIso(d: Date | null | undefined): string | null {
   return d ? d.toISOString() : null;
 }
 
-function rowToCert(row: {
-  id: string;
-  profileId: string;
-  certName: string;
-  certType: string;
-  files: unknown;
-  expiryDate: Date | null;
-  obtainedAt: Date | null;
-  notes: string;
-  createdAt: Date;
-  updatedAt: Date;
-}): PersonnelCertificate {
-  const files = Array.isArray(row.files) ? (row.files as AssetFileMeta[]) : [];
+function rowToCert(row: Prisma.PersonnelCertificateGetPayload<{}>): PersonnelCertificate {
+  const files = Array.isArray(row.files) ? (row.files as unknown as AssetFileMeta[]) : [];
   return {
+    ...row,
+    validityKind: row.validityKind as LedgerFields['validityKind'],
+    validFrom: businessDate(row.validFrom), archivedAt: toIso(row.archivedAt),
     id: row.id,
     profileId: row.profileId,
     certName: row.certName,
@@ -104,6 +102,8 @@ function rowToProfile(
     createdAt: Date;
     updatedAt: Date;
     certificates: ReturnType<typeof rowToCert>[];
+    version: number;
+    archivedAt: Date | null;
   },
   now: Date,
   horizonEnd: Date,
@@ -117,6 +117,7 @@ function rowToProfile(
   }
   return {
     id: row.id,
+    version: row.version, archivedAt: toIso(row.archivedAt),
     name: row.name,
     department: row.department ?? '',
     position: row.position ?? '',
@@ -133,6 +134,7 @@ function rowToProfile(
 }
 
 export interface CreateProfileInput {
+  version?: number;
   name: string;
   department?: string;
   position?: string;
@@ -142,6 +144,7 @@ export interface CreateProfileInput {
 }
 
 export interface UpdateProfileInput {
+  version?: number;
   name?: string;
   department?: string;
   position?: string;
@@ -150,7 +153,7 @@ export interface UpdateProfileInput {
   tags?: string[];
 }
 
-export interface CertificateInput {
+export interface CertificateInput extends LedgerFields {
   certName: string;
   certType?: string;
   expiryDate?: string | null;
@@ -161,9 +164,9 @@ export interface CertificateInput {
 
 export function createPersonnelStore(prisma: PrismaClient) {
   async function listProfiles(opts: { q?: string; expiry?: ExpiryFilter } = {}): Promise<PersonnelProfile[]> {
-    const now = new Date();
+    const now = new Date(`${businessDate(new Date())}T00:00:00.000Z`);
     const horizonEnd = new Date(now.getTime() + EXPIRY_WINDOW_DAYS * DAY_MS);
-    const where: Prisma.PersonnelProfileWhereInput = {};
+    const where: Prisma.PersonnelProfileWhereInput = { archivedAt: null };
     const q = opts.q?.trim();
     if (q) {
       where.OR = [
@@ -180,7 +183,7 @@ export function createPersonnelStore(prisma: PrismaClient) {
     }
     const rows = await prisma.personnelProfile.findMany({
       where,
-      include: { certificates: { orderBy: [{ expiryDate: 'asc' }, { updatedAt: 'desc' }] } },
+      include: { certificates: { where: { archivedAt: null }, orderBy: [{ expiryDate: 'asc' }, { updatedAt: 'desc' }] } },
       orderBy: [{ updatedAt: 'desc' }],
     });
     let profiles = rows.map((row) =>
@@ -197,10 +200,11 @@ export function createPersonnelStore(prisma: PrismaClient) {
   }
 
   async function countByExpiry(): Promise<{ expiring: number; expired: number }> {
-    const now = new Date();
+    const now = new Date(`${businessDate(new Date())}T00:00:00.000Z`);
     const horizonEnd = new Date(now.getTime() + EXPIRY_WINDOW_DAYS * DAY_MS);
     const rows = await prisma.personnelProfile.findMany({
-      select: { id: true, certificates: { select: { expiryDate: true } } },
+      where: { archivedAt: null },
+      select: { id: true, certificates: { where: { archivedAt: null }, select: { expiryDate: true } } },
     });
     let expiring = 0;
     let expired = 0;
@@ -219,22 +223,22 @@ export function createPersonnelStore(prisma: PrismaClient) {
   }
 
   async function getProfile(id: string): Promise<PersonnelProfile | null> {
-    const now = new Date();
+    const now = new Date(`${businessDate(new Date())}T00:00:00.000Z`);
     const horizonEnd = new Date(now.getTime() + EXPIRY_WINDOW_DAYS * DAY_MS);
     const row = await prisma.personnelProfile.findUnique({
       where: { id },
-      include: { certificates: { orderBy: [{ expiryDate: 'asc' }, { updatedAt: 'desc' }] } },
+      include: { certificates: { where: { archivedAt: null }, orderBy: [{ expiryDate: 'asc' }, { updatedAt: 'desc' }] } },
     });
     if (!row) return null;
     return rowToProfile({ ...row, certificates: row.certificates.map(rowToCert) }, now, horizonEnd);
   }
 
-  async function createProfile(input: CreateProfileInput): Promise<PersonnelProfile> {
-    const now = new Date();
+  async function createProfile(input: CreateProfileInput, actorId?: number): Promise<PersonnelProfile> {
+    const now = new Date(`${businessDate(new Date())}T00:00:00.000Z`);
     const horizonEnd = new Date(now.getTime() + EXPIRY_WINDOW_DAYS * DAY_MS);
     const row = await prisma.personnelProfile.create({
       data: {
-        name: input.name.trim(),
+        name: input.name.trim(), createdByUserId: actorId, updatedByUserId: actorId,
         department: input.department?.trim() ?? '',
         position: input.position?.trim() ?? '',
         phone: input.phone?.trim() ?? '',
@@ -246,8 +250,8 @@ export function createPersonnelStore(prisma: PrismaClient) {
     return rowToProfile({ ...row, certificates: row.certificates.map(rowToCert) }, now, horizonEnd);
   }
 
-  async function updateProfile(id: string, patch: UpdateProfileInput): Promise<PersonnelProfile> {
-    const now = new Date();
+  async function updateProfile(id: string, patch: UpdateProfileInput, actorId?: number): Promise<PersonnelProfile> {
+    const now = new Date(`${businessDate(new Date())}T00:00:00.000Z`);
     const horizonEnd = new Date(now.getTime() + EXPIRY_WINDOW_DAYS * DAY_MS);
     const data: Prisma.PersonnelProfileUpdateInput = {};
     if (patch.name !== undefined) data.name = patch.name.trim();
@@ -256,23 +260,32 @@ export function createPersonnelStore(prisma: PrismaClient) {
     if (patch.phone !== undefined) data.phone = patch.phone.trim();
     if (patch.notes !== undefined) data.notes = patch.notes.trim();
     if (patch.tags !== undefined) data.tags = patch.tags;
-    const row = await prisma.personnelProfile.update({
-      where: { id },
-      data,
-      include: { certificates: { orderBy: [{ expiryDate: 'asc' }, { updatedAt: 'desc' }] } },
+    const version = expectedVersion(patch.version);
+    const row = await prisma.$transaction(async (tx) => {
+      const result = await tx.personnelProfile.updateMany({ where: { id, version, archivedAt: null }, data: { ...data, version: { increment: 1 }, updatedByUserId: actorId } as Prisma.PersonnelProfileUpdateManyMutationInput });
+      if (!result.count) throw new ApiError(409, '人员资料已变化，请刷新');
+      await audit(tx, 'personnel', id, 'update', version + 1, actorId);
+      return tx.personnelProfile.findUniqueOrThrow({ where: { id }, include: { certificates: { where: { archivedAt: null } } } });
     });
     return rowToProfile({ ...row, certificates: row.certificates.map(rowToCert) }, now, horizonEnd);
   }
 
-  async function deleteProfile(id: string): Promise<void> {
-    await prisma.personnelProfile.delete({ where: { id } });
-    await fs.rm(getPersonnelProfileDir(undefined, id), { recursive: true, force: true }).catch(() => undefined);
+  async function deleteProfile(id: string, versionValue?: unknown, actorId?: number, permanent = false): Promise<void> {
+    const version = expectedVersion(versionValue);
+    await prisma.$transaction(async (tx) => {
+      if (permanent) await assertSourceUnlinked(tx, 'personnel', id);
+      const result = permanent ? await tx.personnelProfile.deleteMany({ where: { id, version } }) : await tx.personnelProfile.updateMany({ where: { id, version }, data: { archivedAt: new Date(), version: { increment: 1 }, updatedByUserId: actorId } });
+      if (!result.count) throw new ApiError(409, '人员资料已变化，请刷新');
+      await audit(tx, 'personnel', id, permanent ? 'delete' : 'archive', version + 1, actorId);
+    });
+    if (permanent) await fs.rm(getPersonnelProfileDir(undefined, id), { recursive: true, force: true });
   }
 
-  async function addCertificate(profileId: string, input: CertificateInput): Promise<PersonnelCertificate> {
+  async function addCertificate(profileId: string, input: CertificateInput, actorId?: number): Promise<PersonnelCertificate> {
     const row = await prisma.personnelCertificate.create({
       data: {
         profileId,
+        ...normalizeLedger(input), createdByUserId: actorId, updatedByUserId: actorId,
         certName: input.certName.trim(),
         certType: input.certType?.trim() ?? '',
         files: (input.files ?? []) as unknown as Prisma.InputJsonValue,
@@ -293,28 +306,41 @@ export function createPersonnelStore(prisma: PrismaClient) {
     profileId: string,
     certId: string,
     patch: Partial<CertificateInput>,
+    actorId?: number,
   ): Promise<PersonnelCertificate> {
-    const data: Prisma.PersonnelCertificateUpdateInput = {};
+    const version = expectedVersion(patch.version);
+    const current = await prisma.personnelCertificate.findFirstOrThrow({ where: { id: certId, profileId } });
+    const data: Prisma.PersonnelCertificateUpdateManyMutationInput = { ...normalizeLedger(patch, current), version: { increment: 1 }, updatedByUserId: actorId };
     if (patch.certName !== undefined) data.certName = patch.certName.trim();
     if (patch.certType !== undefined) data.certType = patch.certType.trim();
     if (patch.notes !== undefined) data.notes = patch.notes.trim();
     if (patch.files !== undefined) data.files = patch.files as unknown as Prisma.InputJsonValue;
-    if (patch.expiryDate !== undefined) data.expiryDate = patch.expiryDate ? new Date(patch.expiryDate) : null;
-    if (patch.obtainedAt !== undefined) data.obtainedAt = patch.obtainedAt ? new Date(patch.obtainedAt) : null;
-    const row = await prisma.personnelCertificate.update({ where: { id: certId }, data });
+    if (patch.obtainedAt !== undefined) data.obtainedAt = parseDate(patch.obtainedAt, '取得日期');
+    const row = await prisma.$transaction(async (tx) => {
+      const updated = await tx.personnelCertificate.updateMany({ where: { id: certId, profileId, version, archivedAt: null }, data });
+      if (!updated.count) throw new ApiError(409, '证书已被更新，请刷新');
+      await audit(tx, 'certificate', certId, 'update', version + 1, actorId);
+      return tx.personnelCertificate.findUniqueOrThrow({ where: { id: certId } });
+    });
     return rowToCert(row);
   }
 
-  async function deleteCertificate(profileId: string, certId: string): Promise<void> {
-    await prisma.personnelCertificate.delete({ where: { id: certId } });
-    await fs.rm(`${getPersonnelProfileDir(undefined, profileId)}/${certId}`, { recursive: true, force: true }).catch(() => undefined);
+  async function deleteCertificate(profileId: string, certId: string, versionValue?: unknown, actorId?: number, permanent = false): Promise<void> {
+    const version = expectedVersion(versionValue);
+    await prisma.$transaction(async (tx) => {
+      if (permanent) await assertSourceUnlinked(tx, 'personnel', profileId);
+      const result = permanent ? await tx.personnelCertificate.deleteMany({ where: { id: certId, profileId, version } }) : await tx.personnelCertificate.updateMany({ where: { id: certId, profileId, version }, data: { archivedAt: new Date(), version: { increment: 1 }, updatedByUserId: actorId } });
+      if (!result.count) throw new ApiError(409, '证书已被更新，请刷新');
+      await audit(tx, 'certificate', certId, permanent ? 'delete' : 'archive', version + 1, actorId);
+    });
+    if (permanent) await fs.rm(`${getPersonnelProfileDir(undefined, profileId)}/${certId}`, { recursive: true, force: true });
   }
 
   async function listExpiring(withinDays = EXPIRY_WINDOW_DAYS, limit = 50): Promise<PersonnelExpiringItem[]> {
-    const now = new Date();
+    const now = new Date(`${businessDate(new Date())}T00:00:00.000Z`);
     const horizonEnd = new Date(now.getTime() + withinDays * DAY_MS);
     const rows = await prisma.personnelCertificate.findMany({
-      where: { expiryDate: { not: null, lte: horizonEnd } },
+      where: { archivedAt: null, profile: { archivedAt: null }, expiryDate: { not: null, lte: horizonEnd } },
       include: { profile: { select: { id: true, name: true, department: true } } },
       orderBy: [{ expiryDate: 'asc' }, { updatedAt: 'desc' }],
       take: limit,

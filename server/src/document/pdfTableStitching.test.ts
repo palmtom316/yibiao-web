@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-// @ts-expect-error 生产转换器是 ESM JavaScript，仓库当前未为 convert.mjs 提供声明文件。
 const converter = await import('./doc2markdown/convert.mjs') as Record<string, unknown>;
 
 function stitch(pages: string[][][][]): string[][][][] {

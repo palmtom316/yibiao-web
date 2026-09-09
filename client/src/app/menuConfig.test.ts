@@ -12,11 +12,11 @@ test('资源下载模块不再出现在主菜单或子菜单中', () => {
   assert.equal(ids.includes('resources'), false);
 });
 
-test('商务标入口改为投标计算器并保留原开发中提示', () => {
+test('商务入口提供响应清单且不再显示计算器占位', () => {
   const businessBid = flattenMenuItems().find((item) => item.id === 'business-bid');
 
   assert.ok(businessBid);
-  assert.equal(businessBid.label, '投标计算器');
-  assert.equal(businessBid.description, '综合报价、技术、商务评分标准计算标书最终得分');
-  assert.equal(businessBid.notice?.message, '正在开发中，敬请期待。');
+  assert.equal(businessBid.label, '商务响应');
+  assert.match(businessBid.description, /原件包/);
+  assert.equal(businessBid.notice, undefined);
 });

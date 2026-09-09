@@ -1,3 +1,4 @@
+import { checkUploadLimits } from '../resources/uploads';
 // multipart 上传的两条共享收集路径：
 //   - collectParsedImports：每 part 落临时文件 → parseDocument（technical_plan / rejection_check 导入用）。
 //   - collectRawUploads   ：仅收字节缓冲，不解析（duplicate_check 选文件 / knowledge_base copy_source 用，
@@ -18,6 +19,8 @@ export async function collectParsedImports(req: FastifyRequest): Promise<Collect
   const docs: ParsedImport[] = [];
   const errors: string[] = [];
   let officeMissing = false;
+  let totalBytes = 0;
+  let fileCount = 0;
   for await (const part of req.files()) {
     const fileName = String(part.filename || 'upload');
     const ext = path.extname(fileName).toLowerCase();
@@ -25,10 +28,13 @@ export async function collectParsedImports(req: FastifyRequest): Promise<Collect
     const tmpPath = path.join(tmpDir, `upload${ext || ''}`);
     try {
       const buffer = await part.toBuffer();
+      totalBytes += buffer.length;
+      checkUploadLimits(buffer.length, totalBytes, ++fileCount);
       await fs.writeFile(tmpPath, buffer);
       const result = await parseDocument(tmpPath);
       docs.push({ fileName, ...result });
     } catch (error) {
+      if ((error as { statusCode?: number }).statusCode === 413) throw error;
       if (isLibreOfficeMissingError(error)) officeMissing = true;
       errors.push(`${fileName}: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -52,14 +58,19 @@ export interface CollectedRawUploads {
 // 仅收集 multipart 字节缓冲（不落临时文件、不解析）。调用方自行持久化或再 parseDocument。
 export async function collectRawUploads(req: FastifyRequest): Promise<CollectedRawUploads> {
   const files: RawUpload[] = [];
+  let totalBytes = 0;
+  let fileCount = 0;
   const errors: string[] = [];
   for await (const part of req.files()) {
     const fileName = String(part.filename || 'upload');
     const ext = path.extname(fileName).toLowerCase();
     try {
       const buffer = await part.toBuffer();
+      totalBytes += buffer.length;
+      checkUploadLimits(buffer.length, totalBytes, ++fileCount);
       files.push({ fileName, ext, buffer });
     } catch (error) {
+      if ((error as { statusCode?: number }).statusCode === 413) throw error;
       errors.push(`${fileName}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

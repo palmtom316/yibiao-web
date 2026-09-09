@@ -1,3 +1,4 @@
+import { appendLedgerFields, type LedgerFields } from '../../../shared/types/ledger';
 // 资产/资质库 API 客户端：三库（tool/company/personnel）共用，公司共享（无 userId）。
 // 对标 system-settings.ts：react-query + shared/api/http（axios 实例自动注入 /api 前缀与 Bearer）。
 // 文件字节经 GET .../files/:fileId 取回（Bearer 鉴权），预览用 axios blob → objectURL，避免把 JWT 放进 URL/日志。
@@ -16,7 +17,8 @@ export interface AssetFileMeta {
   ext: string;
 }
 
-export interface AssetItem {
+export interface AssetItem extends LedgerFields {
+  version: number;
   id: string;
   library: string;
   name: string;
@@ -37,7 +39,7 @@ export interface AssetListResponse {
   counts: { expiring: number; expired: number };
 }
 
-export interface AssetItemInput {
+export interface AssetItemInput extends LedgerFields {
   name: string;
   notes?: string;
   expiryDate?: string | null;
@@ -49,6 +51,7 @@ export interface AssetItemInput {
 // multipart FormData：字段 name/notes/expiryDate/tags + 多个文件 part（fieldname 不影响后端收集）。
 function buildForm(input: AssetItemInput): FormData {
   const form = new FormData();
+  appendLedgerFields(form, input);
   form.append('name', input.name);
   if (input.notes !== undefined) form.append('notes', input.notes);
   if (input.expiryDate !== undefined) form.append('expiryDate', input.expiryDate ?? '');
@@ -132,7 +135,7 @@ export function useUpdateAssetItem(library: AssetLibraryId) {
 export function useDeleteAssetItem(library: AssetLibraryId) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => http.delete(`/asset-library/${library}/${id}`),
+    mutationFn: async ({ id, version }: { id: string; version: number }) => http.delete(`/asset-library/${library}/${id}`, { params: { version } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['asset-library', library] });
       qc.invalidateQueries({ queryKey: ['asset-library', 'expiring'] });

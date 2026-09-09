@@ -602,6 +602,7 @@ async function extractPdfJsTables(buffer) {
 
   try {
     const pages = [];
+    if (document.numPages > 500) throw new ConversionError('page_limit', 'PDF 超过 500 页，请拆分后上传');
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
       const page = await document.getPage(pageNumber);
       const [textContent, operatorList] = await Promise.all([
@@ -1486,7 +1487,8 @@ async function runLibreOfficeConvert(soffice, inputPath, outputDir) {
 
 function runProcess(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { windowsHide: true });
+    const safeEnv = Object.fromEntries(['PATH', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'SystemRoot'].filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
+    const child = spawn(command, args, { windowsHide: true, env: safeEnv });
     let stdout = '';
     let stderr = '';
     let settled = false;

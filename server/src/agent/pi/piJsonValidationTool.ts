@@ -3,6 +3,7 @@
 // 依赖 ajv（Draft-07）。Type（typebox 构造器）由 piSessionFactory 注入，与 SDK 同源。
 
 import fs from 'node:fs';
+import { resolveInside, readBoundedFile } from '../../security/files';
 import path from 'node:path';
 import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv';
 
@@ -31,7 +32,7 @@ function normalizeWorkspaceFilePath(filePath: string): string {
 function resolveWorkspaceFile(workspaceDir: string, filePath: string): { relativePath: string; resolvedPath: string } {
   const relativePath = normalizeWorkspaceFilePath(filePath);
   const workspaceRoot = path.resolve(workspaceDir);
-  const resolvedPath = path.resolve(workspaceRoot, relativePath);
+  const resolvedPath = resolveInside(workspaceRoot, relativePath);
   if (resolvedPath !== workspaceRoot && !resolvedPath.startsWith(`${workspaceRoot}${path.sep}`)) {
     throw new Error(`file_path 超出当前工作区：${filePath}`);
   }
@@ -141,7 +142,7 @@ export function createPiJsonValidationTool({
       try {
         const resolved = resolveWorkspaceFile(workspaceDir, params.file_path);
         relativePath = resolved.relativePath;
-        source = fs.readFileSync(resolved.resolvedPath, 'utf-8');
+        source = readBoundedFile(workspaceDir, relativePath, 4 * 1024 * 1024).toString('utf8');
       } catch (error) {
         return createToolResult({
           filePath: params.file_path,

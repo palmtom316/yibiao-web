@@ -1,3 +1,5 @@
+import LedgerFieldsEditor from '../../../shared/ui/LedgerFieldsEditor';
+import type { LedgerFields } from '../../../shared/types/ledger';
 // 证书编辑器（新增/编辑）：证书名/类别/到期/取得日期/备注 + 多文件。
 // 复用 FileDropField（可靠上传）与 .asset-editor-modal 卡片样式；弹窗内嵌于人物详情之上（Radix 嵌套 Dialog）。
 import { useEffect, useState } from 'react';
@@ -37,6 +39,7 @@ function PersonnelCertificateEditor({ profileId, cert, onClose }: PersonnelCerti
   const [certType, setCertType] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [obtainedAt, setObtainedAt] = useState('');
+  const [ledger, setLedger] = useState<LedgerFields>({ validityKind: 'unknown' });
   const [notes, setNotes] = useState('');
   const [existingFiles, setExistingFiles] = useState<ExistingFile[]>([]);
   const [newFiles, setNewFiles] = useState<File[]>([]);
@@ -49,6 +52,7 @@ function PersonnelCertificateEditor({ profileId, cert, onClose }: PersonnelCerti
     setNotes(cert?.notes ?? '');
     setExistingFiles((cert?.files ?? []).map((f) => ({ ...f, removed: false })));
     setNewFiles([]);
+    setLedger(cert ? { ...cert, validFrom: cert.validFrom?.slice(0, 10) || '' } : { validityKind: 'unknown' });
   }, [cert]);
 
   const isEdit = !!cert;
@@ -70,6 +74,7 @@ function PersonnelCertificateEditor({ profileId, cert, onClose }: PersonnelCerti
       return;
     }
     const input: CertificateInput = {
+      ...ledger, version: cert?.version,
       certName: trimmed,
       certType,
       expiryDate: expiryDate || null,
@@ -122,6 +127,8 @@ function PersonnelCertificateEditor({ profileId, cert, onClose }: PersonnelCerti
               />
             </label>
 
+            <LedgerFieldsEditor personnel value={ledger} onChange={(next) => { setLedger(next); if (next.validityKind === 'permanent') setExpiryDate(''); }} />
+
             <div className="asset-field-row">
               <label className="asset-field">
                 <span className="asset-field-label">到期日期</span>
@@ -129,7 +136,7 @@ function PersonnelCertificateEditor({ profileId, cert, onClose }: PersonnelCerti
                   type="date"
                   className="asset-field-input"
                   value={expiryDate}
-                  onChange={(e) => setExpiryDate(e.target.value)}
+                  onChange={(e) => { setExpiryDate(e.target.value); setLedger((prev) => ({ ...prev, validityKind: e.target.value ? 'dated' : 'unknown' })); }}
                 />
               </label>
               <label className="asset-field">

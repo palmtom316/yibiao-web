@@ -1,3 +1,4 @@
+import ProcessingPolicyPanel from '../../../shared/ui/ProcessingPolicyPanel';
 ﻿import { useEffect, useRef, useState } from 'react';
 import { FloatingToolbar, InputWithAction, useToast } from '../../../shared/ui';
 import type { FloatingToolbarGroup } from '../../../shared/ui';
@@ -133,6 +134,7 @@ function normalizeTextModelProfile(provider: ConfiguredTextModelProvider, profil
   const baseUrl = provider === 'custom' ? profile?.base_url ?? defaults.base_url : defaults.base_url;
   return {
     api_key: profile?.api_key ?? defaults.api_key,
+    configured: profile?.configured,
     base_url: baseUrl,
     model_name: profile?.model_name ?? defaults.model_name,
     context_length_limit: normalizeTextContextLengthLimit(profile?.context_length_limit ?? defaults.context_length_limit),
@@ -333,6 +335,7 @@ function normalizeImageModelProfile(provider: ImageModelProvider, profile?: Part
     provider,
     base_url: provider === 'custom' ? profile?.base_url ?? defaults.base_url : defaults.base_url,
     api_key: profile?.api_key ?? defaults.api_key,
+    configured: profile?.configured,
     model_name: useProviderDefaultImageModel ? defaults.model_name : profile?.model_name ?? defaults.model_name,
     image_size: normalizeImageSize(provider, useProviderDefaultImageModel ? defaults.image_size : profile?.image_size ?? defaults.image_size),
     request_mode: normalizeAiRequestMode(useProviderDefaultImageModel ? defaults.request_mode : profile?.request_mode ?? defaults.request_mode),
@@ -604,6 +607,8 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
         fileParser: {
           provider: config.file_parser.provider,
           mineru_token: config.file_parser.mineru_token || '',
+          configured: config.file_parser.configured,
+          mineru_base_url: config.file_parser.mineru_base_url,
         },
         agentModeScenarios: normalizeAgentModeScenarios(config.agent_mode_scenarios),
         general: {
@@ -654,6 +659,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       file_parser: {
         provider: state.fileParser.provider,
         mineru_token: state.fileParser.mineru_token || '',
+        mineru_base_url: state.fileParser.mineru_base_url,
       },
       agent_mode_scenarios: state.agentModeScenarios,
       update_channel: state.general.update_channel,
@@ -708,12 +714,21 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     return saveFn?.(config);
   };
 
+  const clearSecret = async (key: string) => {
+    if (!isAdmin) return;
+    try {
+      await window.yibiao?.config.savePlatform({ clear_secrets: [key] } as ClientConfig);
+      await loadTextConfig();
+      showToast('密钥已清除', 'success');
+    } catch { showToast('清除失败', 'error'); }
+  };
+
   const saveClientConfig = async (config: ClientConfig) => {
     try {
       const result = await persistConfig(config);
       showToast(result?.success ? '配置已保存' : result?.message || '配置保存失败', result?.success ? 'success' : 'error');
       if (result?.success) {
-        setSavedConfig(config);
+        await loadTextConfig();
         onDeveloperModeChange?.(Boolean(config.developer_mode));
       }
       return Boolean(result?.success);
@@ -979,7 +994,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
           [failedImageModel.provider]: failedImageModel,
         },
       };
-      await persistConfig(failedConfig).catch(() => undefined);
+      await persistConfig(failedConfig)?.catch(() => undefined);
       setState((prev) => ({
         ...prev,
         imageModel: failedConfig.image_model,
@@ -1048,7 +1063,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
           ? state.imageModel.base_url || ''
           : state.imageModel.base_url || imageProviderDefaults[state.imageModel.provider].base_url || '';
 
-        if (!state.imageModel.api_key.trim()) {
+        if (!state.imageModel.api_key.trim() && !state.imageModel.configured) {
           setImageModels([]);
           showToast(`请先填写${providerLabel} API Key`, 'info');
           return;
@@ -1551,12 +1566,13 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>API Key</strong>
-                <span>仅保存在本机配置文件中，不暴露给 Renderer 以外的原始能力</span>
+                {isAdmin && state.textModel.configured && <button type="button" className="secondary-button" onClick={() => void clearSecret(`text_model_profiles.${state.textModel.provider}.api_key`)}>清除已存密钥</button>}
+                <span>密钥保存在服务器；留空保留原值，填写新值后保存即可替换</span>
               </div>
               <InputWithAction
                 type="password"
                 value={state.textModel.api_key}
-                placeholder="请输入文本模型 API Key"
+                placeholder={state.textModel.configured ? '已配置，留空保留原密钥' : '请输入文本模型 API Key'}
                 onChange={(event) => updateTextModelConfig({ api_key: event.target.value }, { clearModels: true })}
                 actionLabel="获取"
                 actionTitle="打开当前服务商的 API Key 获取页面"
@@ -1706,6 +1722,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                 disabled={state.imageModel.provider !== 'custom'}
               />
             </label>
+            {isAdmin && state.imageModel.configured && <button type="button" className="secondary-button" onClick={() => void clearSecret(`image_model_profiles.${state.imageModel.provider}.api_key`)}>清除已存生图密钥</button>}
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>API Key</strong>
@@ -1817,6 +1834,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
           <div className="settings-section-title">
             <span />
             <strong>文件解析配置</strong>
+            <ProcessingPolicyPanel />
           </div>
           <div className="settings-list">
             <label className="settings-row">
@@ -1836,10 +1854,12 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                 ))}
               </select>
             </label>
+            {state.fileParser.provider !== 'local' && <label className="settings-row"><span>MinerU 服务地址</span><input disabled={!isAdmin} value={state.fileParser.mineru_base_url || 'https://mineru.net'} onChange={(event) => setState((prev) => ({ ...prev, fileParser: { ...prev.fileParser, mineru_base_url: event.target.value } }))} /></label>}
             {state.fileParser.provider === 'mineru-accurate-api' && (
               <label className="settings-row">
                 <div className="settings-row-copy">
                   <strong>MinerU Token</strong>
+                  {isAdmin && state.fileParser.configured && <button type="button" onClick={() => void clearSecret('file_parser.mineru_token')}>清除已存密钥</button>}
                   <span>仅精准解析 API 需要 Token；轻量解析和本地解析无需填写</span>
                 </div>
                 <input

@@ -6,6 +6,7 @@ export type UpdateChannel = 'github' | 'cloudflare';
 
 export interface TextModelConfig {
   api_key: string;
+  configured?: boolean;
   base_url: string;
   model_name: string;
   context_length_limit: number;
@@ -24,6 +25,7 @@ export interface ConfigSaveResult {
   success: boolean;
   message: string;
   config_path?: string;
+  config?: ClientConfig;
 }
 
 export interface ModelListResult {
@@ -48,6 +50,7 @@ export interface ImageModelConfig {
   provider: ImageModelProvider;
   base_url?: string;
   api_key: string;
+  configured?: boolean;
   model_name: string;
   image_size: ImageModelSize;
   request_mode: AiRequestMode;
@@ -64,6 +67,8 @@ export type FileParserProvider = 'local' | 'mineru-accurate-api' | 'mineru-agent
 export interface FileParserConfig {
   provider: FileParserProvider;
   mineru_token?: string;
+  mineru_base_url?: string;
+  configured?: boolean;
 }
 
 export interface AgentModeScenariosConfig {
@@ -71,6 +76,7 @@ export interface AgentModeScenariosConfig {
 }
 
 export interface ClientConfig extends AiConfig {
+  clear_secrets?: string[];
   image_model: ImageModelConfig;
   image_model_profiles: ImageModelProfiles;
   file_parser: FileParserConfig;

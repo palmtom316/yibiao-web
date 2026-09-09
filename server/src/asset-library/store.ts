@@ -1,3 +1,6 @@
+import { normalizeLedger, expectedVersion, businessDate, type LedgerFields } from '../ledger/validation';
+import { audit, assertSourceUnlinked } from '../ledger/lifecycle';
+import { ApiError } from '../security/access';
 // 资产/资质库存储层（工具模板库 tool / 公司资质库 company / 人员资质库 personnel）。
 // 公司共享（无 userId 隔离）。files 存 JSON 元数据数组；文件字节由路由落 <dataDir>/shared/asset-library/<library>/<itemId>/。
 // 到期提醒：expiryDate 为空表示不参与提醒（工具库典型留空）；临期窗口默认 30 天。
@@ -10,6 +13,7 @@ export const ASSET_LIBRARIES: AssetLibrary[] = ['tool', 'company', 'personnel'];
 export const EXPIRY_WINDOW_DAYS = 30;
 
 export interface AssetFileMeta {
+  sha256?: string;
   fileId: string;
   originalName: string;
   mimeType: string;
@@ -17,7 +21,8 @@ export interface AssetFileMeta {
   ext: string;
 }
 
-export interface AssetItem {
+export interface AssetItem extends LedgerFields {
+  version: number;
   id: string;
   library: string;
   name: string;
@@ -39,19 +44,14 @@ function toIso(d: Date | null | undefined): string | null {
   return d ? d.toISOString() : null;
 }
 
-function rowToItem(row: {
-  id: string;
-  library: string;
-  name: string;
-  notes: string;
-  files: unknown;
-  expiryDate: Date | null;
-  tags: string[];
-  createdAt: Date;
-  updatedAt: Date;
-}): AssetItem {
-  const files = Array.isArray(row.files) ? (row.files as AssetFileMeta[]) : [];
+function rowToItem(row: Prisma.AssetItemGetPayload<{}>): AssetItem {
+  const files = Array.isArray(row.files) ? (row.files as unknown as AssetFileMeta[]) : [];
   return {
+    ...row,
+    version: row.version,
+    validityKind: row.validityKind as LedgerFields['validityKind'],
+    validFrom: businessDate(row.validFrom),
+    archivedAt: toIso(row.archivedAt),
     id: row.id,
     library: row.library,
     name: row.name,
@@ -78,7 +78,7 @@ function expiryWhere(expiry: ExpiryFilter, now: Date, horizonEnd: Date): Prisma.
   }
 }
 
-export interface CreateAssetInput {
+export interface CreateAssetInput extends LedgerFields {
   name: string;
   notes?: string;
   expiryDate?: string | null;
@@ -86,7 +86,7 @@ export interface CreateAssetInput {
   files?: AssetFileMeta[];
 }
 
-export interface UpdateAssetInput {
+export interface UpdateAssetInput extends LedgerFields {
   name?: string;
   notes?: string;
   expiryDate?: string | null;
@@ -99,9 +99,9 @@ export function createAssetLibraryStore(prisma: PrismaClient) {
     library: AssetLibrary,
     opts: { q?: string; expiry?: ExpiryFilter } = {},
   ): Promise<AssetItem[]> {
-    const now = new Date();
+    const now = new Date(`${businessDate(new Date())}T00:00:00.000Z`);
     const horizonEnd = new Date(now.getTime() + EXPIRY_WINDOW_DAYS * DAY_MS);
-    const where: Prisma.AssetItemWhereInput = { library };
+    const where: Prisma.AssetItemWhereInput = { library, archivedAt: null };
     const q = opts.q?.trim();
     if (q) {
       where.AND = [
@@ -126,11 +126,11 @@ export function createAssetLibraryStore(prisma: PrismaClient) {
   }
 
   async function countByExpiry(library: AssetLibrary): Promise<{ expiring: number; expired: number }> {
-    const now = new Date();
+    const now = new Date(`${businessDate(new Date())}T00:00:00.000Z`);
     const horizonEnd = new Date(now.getTime() + EXPIRY_WINDOW_DAYS * DAY_MS);
     const [expiring, expired] = await Promise.all([
-      prisma.assetItem.count({ where: { library, ...expiryWhere('expiring', now, horizonEnd) } }),
-      prisma.assetItem.count({ where: { library, ...expiryWhere('expired', now, horizonEnd) } }),
+      prisma.assetItem.count({ where: { library, archivedAt: null, ...expiryWhere('expiring', now, horizonEnd) } }),
+      prisma.assetItem.count({ where: { library, archivedAt: null, ...expiryWhere('expired', now, horizonEnd) } }),
     ]);
     return { expiring, expired };
   }
@@ -140,10 +140,13 @@ export function createAssetLibraryStore(prisma: PrismaClient) {
     return row ? rowToItem(row) : null;
   }
 
-  async function createItem(library: AssetLibrary, input: CreateAssetInput): Promise<AssetItem> {
+  async function createItem(library: AssetLibrary, input: CreateAssetInput, actorId?: number): Promise<AssetItem> {
+    if (library === 'personnel') throw new ApiError(410, '旧人员库仅可读取，请使用一人多证人员库');
     const row = await prisma.assetItem.create({
       data: {
         library,
+        ...normalizeLedger(input),
+        createdByUserId: actorId, updatedByUserId: actorId,
         name: input.name.trim(),
         notes: input.notes?.trim() ?? '',
         files: (input.files ?? []) as unknown as Prisma.InputJsonValue,
@@ -151,33 +154,47 @@ export function createAssetLibraryStore(prisma: PrismaClient) {
         tags: input.tags ?? [],
       },
     });
+    await audit(prisma, 'asset', row.id, 'create', row.version, actorId);
     return rowToItem(row);
   }
 
-  async function updateItem(library: AssetLibrary, id: string, patch: UpdateAssetInput): Promise<AssetItem> {
-    const data: Prisma.AssetItemUpdateInput = {};
-    if (patch.name !== undefined) data.name = patch.name.trim();
-    if (patch.notes !== undefined) data.notes = patch.notes.trim();
-    if (patch.tags !== undefined) data.tags = patch.tags;
-    if (patch.files !== undefined) data.files = patch.files as unknown as Prisma.InputJsonValue;
-    if (patch.expiryDate !== undefined) {
-      data.expiryDate = patch.expiryDate ? new Date(patch.expiryDate) : null;
-    }
-    const row = await prisma.assetItem.update({ where: { id_library: { id, library } }, data });
-    return rowToItem(row);
+  async function updateItem(library: AssetLibrary, id: string, patch: UpdateAssetInput, actorId?: number): Promise<AssetItem> {
+    if (library === 'personnel') throw new ApiError(410, '旧人员库仅可读取，请使用一人多证人员库');
+    const version = expectedVersion(patch.version);
+    return prisma.$transaction(async (tx) => {
+      const current = await tx.assetItem.findFirst({ where: { id, library, archivedAt: null } });
+      if (!current) throw new ApiError(404, '资料不存在或已归档');
+      const data: Prisma.AssetItemUpdateManyMutationInput = { ...normalizeLedger(patch, current), version: { increment: 1 }, updatedByUserId: actorId };
+      if (patch.name !== undefined) data.name = patch.name.trim();
+      if (patch.notes !== undefined) data.notes = patch.notes.trim();
+      if (patch.tags !== undefined) data.tags = patch.tags;
+      if (patch.files !== undefined) data.files = patch.files as unknown as Prisma.InputJsonValue;
+      const result = await tx.assetItem.updateMany({ where: { id, library, version }, data });
+      if (!result.count) throw new ApiError(409, '资料已被更新，请刷新后再保存');
+      await audit(tx, 'asset', id, 'update', version + 1, actorId);
+      return rowToItem(await tx.assetItem.findUniqueOrThrow({ where: { id } }));
+    });
   }
 
-  async function deleteItem(library: AssetLibrary, id: string): Promise<void> {
-    await prisma.assetItem.delete({ where: { id_library: { id, library } } });
-    await fs.rm(getAssetItemDir(undefined, library, id), { recursive: true, force: true }).catch(() => undefined);
+  async function deleteItem(library: AssetLibrary, id: string, versionValue?: unknown, actorId?: number, permanent = false): Promise<void> {
+    if (library === 'personnel') throw new ApiError(410, '旧人员库已只读，请按迁移报告处理，禁止删除旧原件');
+    const version = expectedVersion(versionValue);
+    await prisma.$transaction(async (tx) => {
+      if (permanent) await assertSourceUnlinked(tx, 'asset', id);
+      const result = permanent ? await tx.assetItem.deleteMany({ where: { id, library, version } })
+        : await tx.assetItem.updateMany({ where: { id, library, version }, data: { archivedAt: new Date(), version: { increment: 1 }, updatedByUserId: actorId } });
+      if (!result.count) throw new ApiError(409, '资料版本已变化，请刷新');
+      await audit(tx, 'asset', id, permanent ? 'delete' : 'archive', version + 1, actorId);
+    });
+    if (permanent) await fs.rm(getAssetItemDir(undefined, library, id), { recursive: true, force: true });
   }
 
   // 跨库聚合临期/已到期条目（仪表盘卡片用），按到期日升序，最多 limit 条。
   async function listExpiring(withinDays = EXPIRY_WINDOW_DAYS, limit = 50): Promise<AssetExpiringItem[]> {
-    const now = new Date();
+    const now = new Date(`${businessDate(new Date())}T00:00:00.000Z`);
     const horizonEnd = new Date(now.getTime() + withinDays * DAY_MS);
     const rows = await prisma.assetItem.findMany({
-      where: { expiryDate: { not: null, lte: horizonEnd } },
+      where: { archivedAt: null, library: 'company', expiryDate: { not: null, lte: horizonEnd } },
       orderBy: [{ expiryDate: 'asc' }, { updatedAt: 'desc' }],
       take: limit,
     });
@@ -195,10 +212,7 @@ export function createAssetLibraryStore(prisma: PrismaClient) {
     if (!row) return [];
     const current = Array.isArray(row.files) ? (row.files as unknown as AssetFileMeta[]) : [];
     const remaining = current.filter((f) => !fileIds.includes(f.fileId));
-    await prisma.assetItem.update({
-      where: { id_library: { id, library } },
-      data: { files: remaining as unknown as Prisma.InputJsonValue },
-    });
+    await updateItem(library, id, { files: remaining, version: row.version });
     return remaining;
   }
 

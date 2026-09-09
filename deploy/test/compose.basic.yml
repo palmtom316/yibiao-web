@@ -1,0 +1,5 @@
+services:
+  app:
+    image: yibiao-transform-app-basic:latest
+    build:
+      target: app

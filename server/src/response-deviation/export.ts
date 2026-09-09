@@ -169,7 +169,7 @@ function paragraphsFromMarkdown(markdown: string): Paragraph[] {
 
 class ExportCommentRegistry {
   private nextId = 0;
-  private readonly comments: ICommentsOptions['children'] = [];
+  private readonly comments: Array<ICommentsOptions['children'][number]> = [];
 
   add(text: string): number {
     const id = this.nextId;

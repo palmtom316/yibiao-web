@@ -104,6 +104,8 @@ export interface KnowledgeFolder {
 }
 
 export interface KnowledgeDocument {
+  version?: number;
+  archivedAt?: string | null;
   id: string;
   folder_id: string;
   file_name: string;

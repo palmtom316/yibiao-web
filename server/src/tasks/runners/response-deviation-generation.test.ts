@@ -50,8 +50,8 @@ test('确定性场景零 Pi 调用并保存一行项目原则', async () => {
   });
 
   assert.equal(agentCalls, 0);
-  assert.equal((saved?.extraction as { rows: unknown[] }).rows.length, 1);
-  assert.equal((saved?.extraction as { rows: { aggregation: string }[] }).rows[0].aggregation, 'principles');
+  assert.equal(((saved as Record<string, unknown> | null)?.extraction as { rows: unknown[] }).rows.length, 1);
+  assert.equal(((saved as Record<string, unknown> | null)?.extraction as { rows: { aggregation: string }[] }).rows[0].aggregation, 'principles');
   assert.equal(updates.at(-1)?.status, 'success');
   assert.equal(updates.at(-1)?.progress, 100);
 });
@@ -61,6 +61,7 @@ test('没有招标文件时明确失败', async () => {
     projectId: 10,
     prisma: {} as never,
     aiService: {} as never,
+    agentService: undefined,
     workspaceStore: { getTenderSourceSnapshot: async () => null },
     knowledgeBaseService: {},
     config: {},
@@ -122,7 +123,7 @@ test('多包项目用裁剪后的当前包来源生成偏离表行', async () =>
     previousState: {},
   });
 
-  const rows = (saved?.extraction as { rows: Array<{ requirementPlainText: string }> }).rows;
+  const rows = ((saved as Record<string, unknown> | null)?.extraction as { rows: Array<{ requirementPlainText: string }> }).rows;
   assert.equal(rows.length, 1);
   assert.match(rows[0].requirementPlainText, /包1采购需求/);
   assert.doesNotMatch(rows[0].requirementPlainText, /包2采购需求不得进入结果/);

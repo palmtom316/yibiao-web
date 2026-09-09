@@ -1,3 +1,15 @@
+import { createProcessingAuthorizer } from './security/processing-authorizer';
+import { businessBidRoutes } from './routes/business-bid';
+import { performanceRoutes } from './routes/performance';
+import { processingPolicyRoutes } from './routes/processing-policy';
+import { JobService } from './jobs/service';
+import { jobRoutes } from './routes/jobs';
+import { documentSourceRoutes } from './routes/document-sources';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { getDataDir } from './document/paths';
+import { parseQueue, exportQueue } from './resources/queue';
+import { MAX_FILE_BYTES, MAX_UPLOAD_FILES } from './resources/uploads';
 import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
@@ -18,14 +30,15 @@ import { duplicateCheckRoutes } from './routes/duplicate-check';
 import { rejectionCheckRoutes } from './routes/rejection-check';
 import { documentRoutes } from './routes/documents';
 import { exportRoutes } from './routes/export';
-import { eventRoutes } from './routes/events';
+import { eventRoutes, closeEventStreams } from './routes/events';
 import { taskRoutes } from './routes/tasks';
 import { feedbackRoutes } from './routes/feedback';
 import { docsRoutes } from './routes/docs';
 import { promptReadRoutes, promptAdminRoutes } from './routes/prompts';
 import { agentRoutes } from './routes/agent';
-import { verifyToken, createRequireAdmin, createRequireProject } from './auth/middleware';
-import { createRequireModule } from './auth/permissions';
+import { createVerifyToken, createRequireAdmin, createRequireProject } from './auth/middleware';
+import { setProcessingAuthorizer, ProcessingDeniedError } from './security/processing';
+import { createRequireModule, parseModules } from './auth/permissions';
 import { getAiService } from './ai/service';
 import { createTechnicalPlanStore } from './technical-plan/store';
 import { createDuplicateCheckStore } from './duplicate-check/store';
@@ -51,6 +64,8 @@ const prisma = new PrismaClient({
   // 会抛 "Transaction already closed"。根治（saveOutlineData 批量化）后正常路径远低于此，此值仅作安全垫。
   transactionOptions: { timeout: 30_000 },
 });
+
+setProcessingAuthorizer(createProcessingAuthorizer(prisma));
 
 // 任务引擎单例：跨请求共享 activeTasks 内存 + aiService 队列。
 // runner 注册表此时为空（L3）；L4 调 taskService.registerRunner 落入 9 个真实 runner。
@@ -105,10 +120,34 @@ const taskService = new TaskService({
 // 未注册的 type 走 start-* 的 501 "执行器尚未注册" 兜底。
 registerTaskRunners(taskService);
 
-const app = Fastify({ logger: true });
+const jobs = new JobService(prisma);
+const app = Fastify({ logger: { redact: ['req.headers.authorization', 'req.headers.cookie', '*.api_key', '*.mineru_token'] }, bodyLimit: 50 * 1024 * 1024 });
+app.setErrorHandler((error, req, reply) => {
+  const known = error as { statusCode?: number; code?: string; message?: string; details?: unknown };
+  const status = known.statusCode || (known.code === 'P2025' ? 404 : ['P2002', 'P2003'].includes(known.code || '') ? 409 : 500);
+  if (status >= 500) req.log.error({ code: known.code, name: error instanceof Error ? error.name : 'Error' }, 'request failed');
+  reply.code(status).send({ error: status >= 500 ? '服务处理失败，请重试或查看任务状态' : known.message, message: status >= 500 ? '服务处理失败，请重试或查看任务状态' : known.message, ...(status < 500 && known.details ? { details: known.details } : {}) });
+});
+let shuttingDown = false;
+app.addHook('onRequest', async (_req, reply) => {
+  if (shuttingDown) reply.code(503).send({ error: '服务正在停止，请稍后重试' });
+});
+app.get('/health/live', async () => ({ status: 'ok' }));
+app.get('/health/ready', async (_req, reply) => {
+  try {
+    if (shuttingDown) throw new Error('stopping');
+    await prisma.$queryRaw`SELECT 1`;
+    await fs.mkdir(getDataDir(), { recursive: true });
+    const probe = path.join(getDataDir(), `.readiness-${process.pid}`);
+    await fs.writeFile(probe, 'ok', { mode: 0o600 });
+    await fs.unlink(probe);
+    return { status: 'ready', version: process.env.YIBIAO_BUILD_COMMIT || 'development', queues: [parseQueue.status(), exportQueue.status()] };
+  } catch { return reply.code(503).send({ status: 'unavailable' }); }
+});
 
 // 暴露 prisma + taskService + agentService 给路由：app.prisma / app.taskService / app.agentService
 app.decorate('prisma', prisma);
+app.decorate('jobs', jobs);
 app.decorate('taskService', taskService);
 app.decorate('agentService', agentService);
 app.decorate('aiDiagnostics', aiDiagnostics);
@@ -117,7 +156,7 @@ app.decorate('tenderSourceService', tenderSourceService);
 void aiDiagnostics.cleanupExpired();
 
 await app.register(cors, {
-  origin: true, // dev 放开；prod 收紧到前端域名
+  origin: process.env.NODE_ENV === 'production' ? (process.env.YIBIAO_PUBLIC_ORIGIN || false) : true,
   credentials: true,
   // 必须显式声明：默认 preflight 只回 GET/HEAD/POST，会导致浏览器侧所有 PUT/DELETE/PATCH
   // 在预检后被静默拦截（net::ERR_FAILED，请求根本不到服务端）。配置保存、模板改删等均受影响。
@@ -127,7 +166,7 @@ await app.register(cors, {
 // multipart：文件上传（P4）。fileSize 上限 100MB（招标文件/标书可能较大）；
 // 单文件流式 toBuffer 落临时文件后交 parseDocument。P4-2/3 各域上传路由复用。
 await app.register(multipart, {
-  limits: { fileSize: 100 * 1024 * 1024 },
+  limits: { fileSize: MAX_FILE_BYTES, files: MAX_UPLOAD_FILES, fields: 30, parts: 40 },
 });
 
 // 公开路由
@@ -137,16 +176,18 @@ await app.register(systemSettingsPublicRoutes, { prefix: '/api' });
 // 受保护路由（统一 onRequest 鉴权）
 await app.register(
   async (protectedApp) => {
-    protectedApp.addHook('onRequest', verifyToken);
+    protectedApp.addHook('onRequest', createVerifyToken(prisma));
 
     // /me：当前用户最新信息（权限即时生效的拉取端点，前端窗口聚焦/60s 定时调）。
     await protectedApp.register(meRoutes, { prefix: '/api' });
 
     // 非项目作用域：配置/系统设置/AI/文档/项目 CRUD/事件 SSE。
+    await protectedApp.register(processingPolicyRoutes, { prefix: '/api' });
     await protectedApp.register(configRoutes, { prefix: '/api' });
     await protectedApp.register(systemSettingsAdminRoutes, { prefix: '/api' });
     await protectedApp.register(aiRoutes, { prefix: '/api' });
-    await protectedApp.register(documentRoutes, { prefix: '/api' });
+    await protectedApp.register(jobRoutes, { prefix: '/api' });
+    await protectedApp.register(documentSourceRoutes, { prefix: '/api' });
     await protectedApp.register(projectRoutes, { prefix: '/api' });
     await protectedApp.register(eventRoutes, { prefix: '/api' });
     // 提示词目录只读：任何登录用户可读（招标解析页需拉任务列表）。promptText 正文见 admin 路由。
@@ -177,6 +218,7 @@ await app.register(
       await kbApp.register(knowledgeBaseRoutes, { prefix: '/api' });
       await kbApp.register(assetLibraryRoutes, { prefix: '/api' });
       await kbApp.register(personnelRoutes, { prefix: '/api' });
+      await kbApp.register(performanceRoutes, { prefix: '/api' });
     });
 
     // 管理员专属：用户管理（注册审批/停用/编辑/删除）+ 提示词管理（编辑招标/废标 prompt）。
@@ -195,10 +237,12 @@ await app.register(
     const requireBidCheck = createRequireModule(prisma, 'bid-check');
     await protectedApp.register(async (projectApp) => {
       projectApp.addHook('onRequest', requireProject);
+      await projectApp.register(documentRoutes, { prefix: '/api' });
       await projectApp.register(technicalPlanRoutes, { prefix: '/api' });
       await projectApp.register(exportRoutes, { prefix: '/api' });
       await projectApp.register(taskRoutes, { prefix: '/api' });
       await projectApp.register(responseDeviationRoutes, { prefix: '/api' });
+      await projectApp.register(businessBidRoutes, { prefix: '/api' });
       await projectApp.register(async (bidCheckApp) => {
         bidCheckApp.addHook('onRequest', requireBidCheck);
         await bidCheckApp.register(duplicateCheckRoutes, { prefix: '/api' });
@@ -212,6 +256,12 @@ const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 try {
+  await fs.mkdir(getDataDir(), { recursive: true });
+  await jobs.recover();
+  for (const project of await prisma.project.findMany({ select: { id: true } })) {
+    await taskService.recoverAllInterruptedTasks(project.id);
+  }
+  await createKnowledgeBaseStore(prisma).recoverInterruptedDocuments();
   await app.listen({ port: PORT, host: HOST });
   app.log.info(`yibiao-server listening on ${HOST}:${PORT}`);
 } catch (err) {
@@ -228,10 +278,16 @@ void primeAppConfigCache(prisma)
 // 优雅关闭：SIGTERM/SIGINT 先停 agent sidecar（abort 活动任务 + 关 opencode/proxy），再关 HTTP。
 // server 原先无 signal handler，PM2 reload / docker stop 会直接 SIGTERM → 进程即时退出、
 // agent sidecar 子进程残留。这里保证 sidecar 与主进程同生共死。
-let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
+  jobs.close();
+  closeEventStreams();
+  parseQueue.stopAccepting();
+  exportQueue.stopAccepting();
+  const deadline = setTimeout(() => process.exit(0), 35_000);
+  deadline.unref();
+  await taskService.prepareShutdown();
   app.log.info(`received ${signal}, shutting down`);
   try {
     await agentService.close();
@@ -243,6 +299,7 @@ async function shutdown(signal: string): Promise<void> {
   } catch (err) {
     app.log.warn({ err }, 'app close failed');
   }
+  await prisma.$disconnect();
   process.exit(0);
 }
 process.on('SIGTERM', () => void shutdown('SIGTERM'));

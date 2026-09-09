@@ -2,6 +2,9 @@ module.exports = {
   apps: [
     {
       name: 'openbidkit-yibiao-web',
+      instances: 1,
+      exec_mode: 'fork',
+      kill_timeout: 45000,
       cwd: '/opt/openbidkit-yibiao-web/server',
       script: './node_modules/.bin/tsx',
       args: 'src/index.ts',

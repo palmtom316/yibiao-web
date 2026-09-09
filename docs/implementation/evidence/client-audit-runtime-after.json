@@ -1,0 +1,42 @@
+{
+  "date": "2026-09-09",
+  "command": "npm audit --omit=dev --json",
+  "runtimeVulnerabilities": 0,
+  "remainingDevDependencies": [
+    {
+      "package": "@babel/core",
+      "version": "7.29.0",
+      "devOnly": true
+    },
+    {
+      "package": "baseline-browser-mapping",
+      "version": "2.10.27",
+      "devOnly": true
+    },
+    {
+      "package": "browserslist",
+      "version": "4.28.2",
+      "devOnly": true
+    },
+    {
+      "package": "esbuild",
+      "version": "0.27.7",
+      "devOnly": true
+    },
+    {
+      "package": "nanoid",
+      "version": "3.3.12",
+      "devOnly": true
+    },
+    {
+      "package": "postcss",
+      "version": "8.5.14",
+      "devOnly": true
+    },
+    {
+      "package": "vite",
+      "version": "7.3.2",
+      "devOnly": true
+    }
+  ]
+}

@@ -1,3 +1,6 @@
+import { http } from '../../../shared/api/http';
+import LedgerFieldsEditor from '../../../shared/ui/LedgerFieldsEditor';
+import type { LedgerFields } from '../../../shared/types/ledger';
 // 资产/资质条目编辑器（新增/编辑）：名称/备注/到期日/标签/多文件。
 // 弹窗遵循项目规范：fixed + overflow-y-auto + 10vh padding，禁用 items-center 居中（防长内容被裁切）。
 import { useEffect, useState } from 'react';
@@ -36,6 +39,10 @@ function AssetItemEditor({ open, library, item, onClose }: AssetItemEditorProps)
   const updateMut = useUpdateAssetItem(library);
 
   const [name, setName] = useState('');
+  const [performances, setPerformances] = useState<any[]>([]);
+  const [performanceId, setPerformanceId] = useState('');
+  const [performanceTitle, setPerformanceTitle] = useState('');
+  const [ledger, setLedger] = useState<LedgerFields>({ validityKind: 'unknown' });
   const [notes, setNotes] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [tags, setTags] = useState('');
@@ -51,6 +58,9 @@ function AssetItemEditor({ open, library, item, onClose }: AssetItemEditorProps)
     setTags((item?.tags ?? []).join(', '));
     setExistingFiles((item?.files ?? []).map((f) => ({ ...f, removed: false })));
     setNewFiles([]);
+    setPerformanceId(''); setPerformanceTitle('');
+    if (library === 'company') void http.get('/performance-records').then(({ data }) => setPerformances(data.items)).catch(() => undefined);
+    setLedger(item ? { ...item, validFrom: item.validFrom?.slice(0, 10) || '' } : { validityKind: 'unknown' });
   }, [open, item]);
 
   const isEdit = !!item;
@@ -73,13 +83,18 @@ function AssetItemEditor({ open, library, item, onClose }: AssetItemEditorProps)
       showToast('名称不能为空', 'error');
       return;
     }
+    if (!isEdit && !ledger.category) { showToast('请选择资料类型', 'error'); return; }
+    if (!isEdit && ledger.category === '业绩原件' && !performanceId) { showToast('请关联或新建一份业绩档案', 'error'); return; }
+    if (performanceId === 'new' && !performanceTitle.trim()) { showToast('请填写新业绩名称', 'error'); return; }
     const tagList = tags.split(',').map((t) => t.trim()).filter(Boolean);
+    let savedAsset: AssetItem | undefined;
     try {
       if (isEdit && item) {
         const removeFileIds = existingFiles.filter((f) => f.removed).map((f) => f.fileId);
-        await updateMut.mutateAsync({
+        savedAsset = await updateMut.mutateAsync({
           id: item.id,
           input: {
+            ...ledger, version: item.version,
             name: trimmed,
             notes,
             expiryDate: expiryDate || null,
@@ -90,7 +105,8 @@ function AssetItemEditor({ open, library, item, onClose }: AssetItemEditorProps)
         });
         showToast('已保存修改', 'success');
       } else {
-        await createMut.mutateAsync({
+        savedAsset = await createMut.mutateAsync({
+          ...ledger,
           name: trimmed,
           notes,
           expiryDate: expiryDate || null,
@@ -99,8 +115,16 @@ function AssetItemEditor({ open, library, item, onClose }: AssetItemEditorProps)
         });
         showToast('已新增条目', 'success');
       }
+      if (performanceId && savedAsset) {
+        if (performanceId === 'new') await http.post('/performance-records', { title: performanceTitle.trim(), assetIds: [savedAsset.id] });
+        else {
+          const { data: record } = await http.get(`/performance-records/${performanceId}`);
+          await http.put(`/performance-records/${performanceId}/links`, { version: record.version, assetIds: [...new Set([...record.assets.map((link: any) => link.assetItemId), savedAsset.id])] });
+        }
+      }
       onClose();
     } catch (err) {
+      if (savedAsset) { showToast('资料已保存，业绩关联未完成，请在业绩档案中重新关联', 'error'); onClose(); return; }
       showToast(`保存失败：${err instanceof Error ? err.message : String(err)}`, 'error');
     }
   };
@@ -137,6 +161,9 @@ function AssetItemEditor({ open, library, item, onClose }: AssetItemEditorProps)
               />
             </label>
 
+            {library === 'company' && ledger.category === '业绩原件' && <label className="asset-field"><span>关联业绩档案</span><select aria-label="关联业绩档案" className="asset-field-input" value={performanceId} onChange={(event) => setPerformanceId(event.target.value)}><option value="">请选择业绩</option><option value="new">新建业绩档案</option>{performances.map((record) => <option key={record.id} value={record.id}>{record.title}</option>)}</select>{performanceId === 'new' && <input className="asset-field-input" placeholder="新业绩名称" value={performanceTitle} onChange={(event) => setPerformanceTitle(event.target.value)} />}</label>}
+            <LedgerFieldsEditor value={ledger} onChange={(next) => { setLedger(next); if (next.validityKind === 'permanent') setExpiryDate(''); }} />
+
             <div className="asset-field-row">
               <label className="asset-field">
                 <span className="asset-field-label">到期日期</span>
@@ -144,7 +171,7 @@ function AssetItemEditor({ open, library, item, onClose }: AssetItemEditorProps)
                   type="date"
                   className="asset-field-input"
                   value={expiryDate}
-                  onChange={(e) => setExpiryDate(e.target.value)}
+                  onChange={(e) => { setExpiryDate(e.target.value); setLedger((prev) => ({ ...prev, validityKind: e.target.value ? 'dated' : 'unknown' })); }}
                 />
               </label>
               <label className="asset-field">

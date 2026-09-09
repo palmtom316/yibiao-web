@@ -1,3 +1,7 @@
+import { ApiError } from '../security/access';
+import { getUserId } from '../auth/middleware';
+import { ledgerFields } from '../ledger/multipart';
+import { expectedVersion } from '../ledger/validation';
 // 资产/资质库路由（受保护 + 模块门禁 knowledge-base，公司共享）。
 // 三库共用：工具模板库 tool / 公司资质库 company / 人员资质库 personnel，:library 参数白名单。
 // 写操作用 multipart：字段 name/notes/expiryDate/tags/removeFileIds + 多个文件 part。
@@ -12,6 +16,7 @@ import {
   mimeFor,
   collectAssetParts,
   persistUploaded,
+  withUploadedFiles,
   asString,
   asStringList,
 } from '../asset-library/multipart';
@@ -32,6 +37,9 @@ async function persistFiles(library: AssetLibrary, itemId: string, uploads: { fi
 export async function assetLibraryRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
   const store = createAssetLibraryStore(prisma);
+  app.addHook('preHandler', async (req, reply) => {
+    if ((req.params as { library?: string }).library === 'personnel' && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) reply.code(410).send({ message: '旧人员库已停止写入，请使用一人多证人员库' });
+  });
 
   // GET /asset-library/:library?q=&expiry= → { items, counts }
   app.get('/asset-library/:library', async (req, reply) => {
@@ -42,6 +50,10 @@ export async function assetLibraryRoutes(app: FastifyInstance, _opts: FastifyPlu
       store.listItems(library, { q: query.q, expiry: parseExpiry(query.expiry) }),
       store.countByExpiry(library),
     ]);
+    if (library === 'personnel') {
+      const mappings = await prisma.legacyPersonnelMigration.findMany({ where: { sourceId: { in: items.map((item) => item.id) } } });
+      return { items: items.map((item) => ({ ...item, migratedTo: mappings.find((mapping) => mapping.sourceId === item.id) || null })), counts, readOnly: true };
+    }
     return { items, counts };
   });
 
@@ -52,16 +64,17 @@ export async function assetLibraryRoutes(app: FastifyInstance, _opts: FastifyPlu
     const { fields, files } = await collectAssetParts(req);
     const name = asString(fields.name).trim();
     if (!name) return reply.code(400).send({ success: false, message: '名称不能为空' });
+    if (!asString(fields.category)) throw new ApiError(400, '请先选择资料类型');
 
     const item = await store.createItem(library, {
+      ...ledgerFields(fields),
       name,
       notes: asString(fields.notes),
       expiryDate: asString(fields.expiryDate) || null,
       tags: asStringList(fields.tags),
-    });
+    }, getUserId(req));
     if (files.length) {
-      const metas = await persistFiles(library, item.id, files);
-      const updated = await store.updateItem(library, item.id, { files: metas });
+      const updated = await withUploadedFiles(files, (fileId, ext) => getAssetFilePath(undefined, library, item.id, fileId, ext), (metas) => store.updateItem(library, item.id, { files: metas, version: item.version }, getUserId(req)));
       return { item: updated };
     }
     return { item };
@@ -87,10 +100,17 @@ export async function assetLibraryRoutes(app: FastifyInstance, _opts: FastifyPlu
     if (!current) return reply.code(404).send({ success: false, message: '条目不存在' });
 
     const { fields, files } = await collectAssetParts(req);
+    if (expectedVersion(asString(fields.version)) !== current.version) throw new ApiError(409, '资料已被更新，请刷新');
     const removeFileIds = asStringList(fields.removeFileIds);
-    const newMetas = files.length ? await persistFiles(library, id, files) : [];
-    const finalFiles = [...current.files.filter((f) => !removeFileIds.includes(f.fileId)), ...newMetas];
-
+    const item = await withUploadedFiles(files, (fileId, ext) => getAssetFilePath(undefined, library, id, fileId, ext), (newMetas) => store.updateItem(library, id, {
+      ...ledgerFields(fields),
+      version: expectedVersion(asString(fields.version)),
+      name: asString(fields.name) || undefined,
+      notes: fields.notes !== undefined ? asString(fields.notes) : undefined,
+      expiryDate: fields.expiryDate !== undefined ? (asString(fields.expiryDate) || null) : undefined,
+      tags: fields.tags !== undefined ? asStringList(fields.tags) : undefined,
+      files: [...current.files.filter((f) => !removeFileIds.includes(f.fileId)), ...newMetas],
+    }, getUserId(req)));
     // 删除被移除文件的字节
     for (const fid of removeFileIds) {
       const meta = current.files.find((f) => f.fileId === fid);
@@ -100,13 +120,6 @@ export async function assetLibraryRoutes(app: FastifyInstance, _opts: FastifyPlu
       }
     }
 
-    const item = await store.updateItem(library, id, {
-      name: asString(fields.name) || undefined,
-      notes: fields.notes !== undefined ? asString(fields.notes) : undefined,
-      expiryDate: fields.expiryDate !== undefined ? (asString(fields.expiryDate) || null) : undefined,
-      tags: fields.tags !== undefined ? asStringList(fields.tags) : undefined,
-      files: finalFiles,
-    });
     return { item };
   });
 
@@ -115,7 +128,7 @@ export async function assetLibraryRoutes(app: FastifyInstance, _opts: FastifyPlu
     const library = parseLibrary((req as FastifyRequest & { params: { library: string } }).params.library);
     if (!library) return reply.code(400).send({ success: false, message: '无效的库类型' });
     const { id } = (req as FastifyRequest & { params: { id: string } }).params;
-    await store.deleteItem(library, id);
+    await store.deleteItem(library, id, (req.query as any).version, getUserId(req), (req.query as any).permanent === 'true');
     return { success: true };
   });
 
@@ -136,7 +149,9 @@ export async function assetLibraryRoutes(app: FastifyInstance, _opts: FastifyPlu
       return reply.code(404).send({ success: false, message: '文件不存在' });
     }
     const isDownload = (req as FastifyRequest & { query: { download?: string } }).query.download === '1';
-    reply.header('Content-Type', meta.mimeType || 'application/octet-stream');
+    reply.header('Content-Type', mimeFor(meta.originalName));
+    reply.header('Content-Security-Policy', "sandbox; default-src 'none'");
+    reply.header('X-Content-Type-Options', 'nosniff');
     if (isDownload) {
       const safeName = encodeURIComponent(meta.originalName);
       reply.header('Content-Disposition', `attachment; filename*=UTF-8''${safeName}`);

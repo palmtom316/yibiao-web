@@ -105,7 +105,7 @@ function PromptManagementPage() {
   const handleResetAll = async () => {
     if (!window.confirm('恢复全部内置提示词为默认正文？所有内置项的正文编辑将被覆盖（自定义项与元数据保留）。')) return;
     try {
-      const res = await resetAllMut.mutateAsync();
+      const res = await resetAllMut.mutateAsync(undefined);
       showToast(`已恢复 ${res.count} 项默认正文`, 'success');
     } catch (err) {
       const anyErr = err as { response?: { data?: { error?: string } } };

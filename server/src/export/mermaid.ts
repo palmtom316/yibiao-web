@@ -70,5 +70,5 @@ export function encodeMermaidForInk(code: string): string {
 }
 
 export function mermaidInkUrl(code: string): string {
-  return `https://mermaid.ink/img/${encodeMermaidForInk(code)}?type=png&bgColor=!white`;
+  throw new Error('公网 Mermaid 渲染已禁用');
 }

@@ -1,0 +1,13 @@
+{
+  "scope": "yibiao-transform synthetic database",
+  "apply": false,
+  "total": 0,
+  "counts": {
+    "planned": 0,
+    "migrated": 0,
+    "already-migrated": 0,
+    "conflict": 0,
+    "pending-mapping": 0
+  },
+  "items": []
+}

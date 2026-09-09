@@ -1,3 +1,4 @@
+import { awaitJobResult } from './jobs';
 // 废标项检查命名空间的 Web 实现：window.yibiao.rejectionCheck.* 的底层。
 // 按 userId 隔离（服务端按 JWT 过滤）。DTO 混合大小写：顶层 workspace + 嵌套域对象全 camelCase
 // （tenderDocument/bidDocuments/invalidBidAndRejectionItems/rejectionCheckResult.../findings），
@@ -51,7 +52,7 @@ export const rejectionCheckApi = {
     files.forEach((f) => fd.append('files', f, f.name));
     return http
       .post<RejectionCheckImportResult>(`/rejection-check/import-document?role=${encodeURIComponent(role)}`, fd)
-      .then((r) => r.data);
+      .then((r) => awaitJobResult<RejectionCheckImportResult>(r.data));
   },
   importTenderFromTechnicalPlan(): Promise<RejectionCheckImportResult> {
     return http.post<RejectionCheckImportResult>('/rejection-check/import-tender-from-technical-plan').then((r) => r.data);

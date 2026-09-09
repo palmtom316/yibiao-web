@@ -1,3 +1,6 @@
+import { startImport, registerImportJob } from '../document/imports';
+import type { JobService } from '../jobs/service';
+import { ApiError } from '../security/access';
 // 废标项检查命名空间路由（受保护，按 projectId 隔离）。
 // RPC 风格：每条写路由返回完整 RejectionCheckWorkspaceState（clear 多一层 envelope）。
 // 移植自 client/electron/ipc/rejectionCheckIpc.cjs 的 7 通道 1:1 透传契约。
@@ -11,6 +14,7 @@ import { collectParsedImports } from '../document/multipart';
 export async function rejectionCheckRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
   const store = createRejectionCheckStore(prisma);
+  registerImportJob((app as unknown as { jobs: JobService }).jobs, 'import-rejection', (projectId, docs, input) => store.importDocument(projectId, input.role, docs, 0));
 
   const bodyOf = (req: FastifyRequest) => (req as FastifyRequest & { body: unknown }).body as Record<string, unknown> | undefined;
 
@@ -36,15 +40,8 @@ export async function rejectionCheckRoutes(app: FastifyInstance, _opts: FastifyP
   // tender：多文件合并；bid：按 fileName+contentHash 去重追加。返回 {success,message,state}。
   app.post('/rejection-check/import-document', async (req, reply) => {
     const role = String((req.query as { role?: string } | undefined)?.role || 'tender');
-    const { docs, errors, officeMissing } = await collectParsedImports(req);
-    if (!docs.length) {
-      return reply.code(officeMissing ? 415 : 422).send({
-        error: errors.join('; ') || '未导入文件',
-        code: officeMissing ? 'office_backend_missing' : 'parse_failed',
-        officeBackendMissing: officeMissing,
-      });
-    }
-    return store.importDocument(getProjectId(req), role, docs, errors.length);
+    if (!['tender', 'bid'].includes(role)) throw new ApiError(400, '文件角色无效');
+    return reply.code(202).send(await startImport(req, 'import-rejection', { role }));
   });
 
   // POST /rejection-check/import-tender-from-technical-plan → {success,message,state}

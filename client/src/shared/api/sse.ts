@@ -7,11 +7,11 @@
 // 生命周期由 AuthProvider 驱动：login 后 start()，logout 时 stop()，boot 时若已登录也 start()。
 // 401（token 失效）：停止重连，等下一次 axios 401 触发 reload → 重新登录后重启。
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { TOKEN_KEY, getActiveProjectId } from './http';
+import { http, TOKEN_KEY, getActiveProjectId } from './http';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
-export type SseChannel = 'tasks' | 'kb-document' | 'ai-http-error' | 'export-progress' | 'agent-question';
+export type SseChannel = 'jobs' | 'tasks' | 'kb-document' | 'ai-http-error' | 'export-progress' | 'agent-question';
 type Listener = (data: unknown) => void;
 
 // 401 时抛出以让 fetch-event-source 停止重连（默认它会无限退避重试）。
@@ -38,6 +38,13 @@ class SseManager {
       current.delete(cb);
       if (current.size === 0) this.listeners.delete(channel);
     };
+  }
+
+  async refreshSnapshot(): Promise<void> {
+    const pid = getActiveProjectId();
+    if (pid == null) return;
+    const { data } = await http.get('/tasks/snapshot');
+    if (getActiveProjectId() === pid) for (const callback of this.listeners.get('tasks') || []) callback(data);
   }
 
   /** 启动 SSE 连接（幂等）。无 token 时记 started 标志、不连；login 后再调即连。 */
@@ -81,12 +88,19 @@ class SseManager {
       signal: ctrl.signal,
       // 标签页切到后台也保持连接（默认隐藏时会断）。
       openWhenHidden: true,
-      async onopen(res: Response): Promise<void> {
-        if (res.status === 401) {
+      onopen: async (res: Response): Promise<void> => {
+        if (res.status === 401 || res.status === 403) {
           throw new FatalSseError(); // token 失效，停止重连
         }
         if (!res.ok && res.status !== 200) {
           throw new Error(`SSE 连接失败：HTTP ${res.status}`);
+        }
+        if (pid != null) {
+          const snapshot = await http.get('/tasks/snapshot', { signal: ctrl.signal });
+          if (getActiveProjectId() === pid && !ctrl.signal.aborted) {
+            for (const listener of this.listeners.get('tasks') || []) listener(snapshot.data);
+            window.dispatchEvent(new CustomEvent('yibiao:sse-reconnected'));
+          }
         }
       },
       onmessage: (ev) => {
@@ -124,3 +138,5 @@ class SseManager {
 }
 
 export const sseManager = new SseManager();
+
+window.addEventListener('yibiao:content-updated', () => { void sseManager.refreshSnapshot().catch(() => undefined); });

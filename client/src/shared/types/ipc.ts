@@ -410,6 +410,7 @@ export interface YibiaoBridge {
   config: {
     load: () => Promise<ClientConfig>;
     save: (config: ClientConfig) => Promise<ConfigSaveResult>;
+    savePlatform: (config: ClientConfig) => Promise<ConfigSaveResult>;
     listModels: (config?: ClientConfig) => Promise<ModelListResult>;
     openConfigFolder: () => Promise<{ success: boolean; path: string }>;
   };
@@ -453,7 +454,7 @@ export interface YibiaoBridge {
     renameFolder: (folderId: string, name: string) => Promise<KnowledgeFolder>;
     reorderFolder: (draggedFolderId: string, targetFolderId: string, position: 'before' | 'after') => Promise<KnowledgeBaseIndexMutationResult>;
     deleteFolder: (folderId: string) => Promise<KnowledgeBaseMutationResult>;
-    deleteDocument: (documentId: string) => Promise<KnowledgeBaseMutationResult>;
+    deleteDocument: (documentId: string, version?: number) => Promise<KnowledgeBaseMutationResult>;
     moveDocument: (documentId: string, targetFolderId: string, targetDocumentId?: string | null, position?: 'before' | 'after') => Promise<KnowledgeBaseIndexMutationResult>;
     uploadDocuments: (folderId: string) => Promise<KnowledgeBaseUploadResult>;
     retryDocument: (documentId: string) => Promise<KnowledgeBaseRetryDocumentResult>;
@@ -514,7 +515,8 @@ export interface YibiaoBridge {
   templates: {
     list: () => Promise<ExportTemplateRecord[]>;
     get: (templateId: string) => Promise<ExportTemplateRecord | null>;
-    create: (config: ExportFormatConfig) => Promise<ExportTemplateRecord>;
+    create: (config: ExportFormatConfig, isShared?: boolean) => Promise<ExportTemplateRecord>;
+    setShared: (templateId: string, isShared: boolean) => Promise<ExportTemplateRecord>;
     update: (templateId: string, config: ExportFormatConfig) => Promise<ExportTemplateRecord>;
     delete: (templateId: string) => Promise<{ success: boolean; message: string }>;
   };
@@ -522,7 +524,7 @@ export interface YibiaoBridge {
     startBidSectionExtraction: (payload?: unknown) => Promise<unknown>;
     startBidAnalysis: (payload: unknown) => Promise<unknown>;
     startOutlineGeneration: (payload: unknown) => Promise<unknown>;
-    startGlobalFactsGeneration: (payload: unknown) => Promise<unknown>;
+    startGlobalFactsGeneration: (payload: unknown) => Promise<{ task_id: string; reused?: boolean }>;
     startContentGeneration: (payload: unknown) => Promise<unknown>;
     pauseContentGeneration: () => Promise<unknown>;
     startRejectionItemsExtraction: (payload: unknown) => Promise<unknown>;

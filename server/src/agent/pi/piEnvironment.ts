@@ -35,7 +35,7 @@ export function preparePiEnvironment(dataDir?: string): PreparedPiEnvironment {
   });
   const env = applyOpenCodeToolEnvironment(
     {
-      ...process.env,
+      ...Object.fromEntries(['PATH', 'LANG', 'LC_ALL', 'TZ', 'SystemRoot', 'WINDIR'].filter((key) => process.env[key]).map((key) => [key, process.env[key]])),
       HOME: layout.homeDir,
       USERPROFILE: layout.homeDir,
       TEMP: layout.tempDir,

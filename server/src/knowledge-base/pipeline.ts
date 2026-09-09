@@ -1,3 +1,4 @@
+import { persistSource, parseSource } from '../document/sources';
 // 知识库文档处理管线（P4 范围：copy_source → convert_markdown → build_blocks 三步）。
 // 忠实移植自 client/electron/services/knowledgeBaseService.cjs 的 prepareDocument 前三步 +
 // uploadDocuments 的文档创建逻辑，砍掉步骤 4-9（LLM 抽取/匹配，留 P6）。
@@ -54,6 +55,7 @@ export async function ingestUpload(
   fileName: string,
   ext: string,
   buffer: Buffer,
+  userId: number,
 ) {
   const documentId = createKnowledgeDocumentId();
   const norm = (v: string) => v.replace(/\\/g, '/');
@@ -77,6 +79,7 @@ export async function ingestUpload(
 
   await fs.mkdir(kb.resolve(documentDir), { recursive: true });
   await fs.writeFile(kb.resolve(sourcePath), buffer);
+  await persistSource(store.db, { knowledgeDocumentId: documentId }, userId, fileName, 'application/octet-stream', buffer);
 
   return { document, sourcePath };
 }
@@ -104,6 +107,7 @@ async function runStep(
 export async function prepareDocument(
   store: KnowledgeBaseStore,
   documentId: string,
+  userId?: number,
 ): Promise<{ success: boolean; document: Awaited<ReturnType<KnowledgeBaseStore['getDocument']> > }> {
   try {
     const row = await store.getDocumentRow(documentId);
@@ -153,7 +157,10 @@ export async function prepareDocument(
         error: null,
       });
       await runStep(store, documentId, 'convert_markdown', async () => {
-        const parsed = stripMarkdownFence((await parseDocument(sourcePath)).markdown.trim());
+        let source = await store.db.documentSource.findFirst({ where: { knowledgeDocumentId: documentId }, orderBy: { createdAt: 'desc' } });
+        if (!source && userId) source = await persistSource(store.db, { knowledgeDocumentId: documentId }, userId, row.fileName, 'application/octet-stream', await fs.readFile(sourcePath));
+        const result = source && userId ? await parseSource(store.db, source.id, userId) : await parseDocument(sourcePath);
+        const parsed = stripMarkdownFence(result.markdown.trim());
         if (!parsed) throw new Error('文档未解析出有效 Markdown 内容');
         await fs.writeFile(markdownPath, `${parsed}\n`, 'utf-8');
         await store.updateMarkdownMetadata(documentId, parsed);
@@ -215,6 +222,7 @@ export async function prepareDocument(
 export async function retryDocument(
   store: KnowledgeBaseStore,
   documentId: string,
+  userId?: number,
 ): Promise<{ success: boolean; message: string; document: Awaited<ReturnType<KnowledgeBaseStore['getDocument']> > }> {
   const document = await store.getDocument(documentId);
   if (document.status !== 'error') {
@@ -224,7 +232,7 @@ export async function retryDocument(
   if (!(await pathExists(kb.resolve(row.sourcePath)))) {
     return { success: false, message: '原始文件不存在，请重新上传', document };
   }
-  const result = await prepareDocument(store, documentId);
+  const result = await prepareDocument(store, documentId, userId);
   return {
     success: result.success,
     message: result.success ? '已重新开始解析' : (result.document.message || '重试失败'),

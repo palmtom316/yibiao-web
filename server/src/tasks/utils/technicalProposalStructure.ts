@@ -142,7 +142,7 @@ function extractChecklistItems(block: string): TechnicalProposalStructureItem[] 
       if (/^(如下|包括|包含|参考内容如下)$/.test(title)) return null;
       return { title, evidence: chunk.trim().slice(0, 180) };
     })
-    .filter((item): item is TechnicalProposalStructureItem => Boolean(item));
+    .filter((item): item is NonNullable<typeof item> => item !== null);
 
   const seen = new Set<string>();
   return items.filter((item) => {

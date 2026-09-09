@@ -11,12 +11,15 @@
     "directory": "client"
   },
   "type": "module",
+  "engines": { "node": "22.23.2" },
+  "packageManager": "npm@10.9.3",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "dev:web": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
     "build:web": "vite build",
     "typecheck": "tsc --noEmit",
+    "test": "node ../scripts/test.mjs",
     "preview": "vite preview --host 0.0.0.0 --port 4173"
   },
   "dependencies": {
@@ -36,6 +39,7 @@
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "tsx": "4.23.1",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^24.10.0",
     "@types/react": "^19.1.11",

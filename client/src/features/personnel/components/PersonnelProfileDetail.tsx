@@ -67,7 +67,7 @@ function PersonnelProfileDetail({
   const handleDeleteCert = async () => {
     if (!deletingCert) return;
     try {
-      await deleteCertMut.mutateAsync(deletingCert.id);
+      await deleteCertMut.mutateAsync({ certId: deletingCert.id, version: deletingCert.version });
       showToast('已删除证书', 'success');
       setDeletingCert(null);
     } catch (err) {
@@ -169,7 +169,7 @@ function PersonnelProfileDetail({
       <ConfirmDialog
         open={!!deletingCert}
         title="删除证书"
-        description={`确认删除证书「${deletingCert?.certName ?? ''}」及其全部文件？此操作不可撤销。`}
+        description={`确认归档证书「${deletingCert?.certName ?? ''}」及其全部文件？此操作不可撤销。`}
         confirmText="删除"
         busy={deleteCertMut.isPending}
         onConfirm={() => void handleDeleteCert()}

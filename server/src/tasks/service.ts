@@ -1,3 +1,5 @@
+import { requireProjectAccess } from '../security/access';
+import { usableSnapshot } from '../business-bid/snapshots';
 // M1-P6 Layer 3：任务引擎（taskService）。忠实移植自 client/electron/services/taskService.cjs，
 // 适配 Web 多项目 + Prisma 异步 + EventBus 广播。
 //
@@ -17,6 +19,7 @@
 import { randomUUID, createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { eventBus } from '../events/bus';
+import { bindConfigScope, withProcessingScope } from '../security/processing';
 import { buildMerged } from '../config/store';
 import { createDocumentSignature, createRejectionCheckInputSignature } from '../rejection-check/store';
 import type { AiService } from '../ai/service';
@@ -261,6 +264,17 @@ interface ProjectTaskState {
 }
 
 export class TaskService {
+  private stopping = false;
+  private starting = new Map<string, { type: string; signature?: string; promise: Promise<BackgroundTaskState> }>();
+  async prepareShutdown(): Promise<void> {
+    this.stopping = true;
+    for (const project of await this.deps.prisma.project.findMany({ select: { id: true } })) {
+      const state = this.projectState(project.id);
+      const control = state.activeTaskControls.get('content-generation');
+      if (control) await control.requestPause().catch(() => undefined);
+    }
+  }
+
   private projects = new Map<number, ProjectTaskState>();
   private runners = new Map<string, TaskRunner>();
   private readonly deps: TaskServiceDeps;
@@ -396,12 +410,29 @@ export class TaskService {
 
   // 核心启动器。runner 必须已注册（start* 包装层已校验）。
   private async startManagedTask(
+    projectId: number, type: string, payload: Record<string, unknown> | undefined,
+    runner: TaskRunner, initialPartial: Record<string, unknown> = {},
+  ): Promise<BackgroundTaskState> {
+    const key = `${projectId}:${getTaskDefinition(type).group}`;
+    const pending = this.starting.get(key);
+    if (pending) {
+      if (pending.type !== type || pending.signature !== getPayloadSignature(type, payload)) throw new Error('当前任务组正在启动其他任务，请稍后重试');
+      return { ...await pending.promise, reused: true };
+    }
+    const promise = this.startManagedTaskImpl(projectId, type, payload, runner, initialPartial)
+      .finally(() => { this.starting.delete(key); });
+    this.starting.set(key, { type, signature: getPayloadSignature(type, payload), promise });
+    return promise;
+  }
+
+  private async startManagedTaskImpl(
     projectId: number,
     type: string,
     payload: Record<string, unknown> | undefined,
     runner: TaskRunner,
     initialPartial: Record<string, unknown> = {},
   ): Promise<BackgroundTaskState> {
+    if (this.stopping) throw Object.assign(new Error('服务正在停止，任务可稍后重试'), { statusCode: 503 });
     const ps = this.projectState(projectId);
     const existingTask = ps.activeTasks.get(type);
     if (existingTask && isActiveTaskStatus(existingTask.status)) {
@@ -422,6 +453,7 @@ export class TaskService {
     task.diagnostic_trace_id = randomUUID();
     const queueScopeId = `${type}:${task.task_id}`;
     ps.activeTasks.set(type, task);
+    try {
     const taskField = definition.field;
     const store = this.storeFor(definition);
     let currentTask = task;
@@ -469,9 +501,18 @@ export class TaskService {
     // config（含 DeepSeek key）仍按用户存：取项目 owner 的合并配置快照。
     const project = await this.deps.prisma.project.findUnique({ where: { id: projectId }, select: { ownerId: true } });
     if (!project) throw new Error('项目不存在，无法启动任务');
-    const config = await buildMerged(this.deps.prisma, project.ownerId);
+    const actorId = Number(payload?.__actorUserId) || project.ownerId;
+    await requireProjectAccess(this.deps.prisma, actorId, projectId);
+    const requiredModules = ['duplicate-analysis', 'rejection-check-run', 'rejection-items-extraction'].includes(type) ? ['bid-check'] : [];
+    const processingScope = { kind: 'project' as const, projectId, userId: actorId, requiredModules, includesSharedData: false };
+    if (['outline-generation', 'global-facts-generation', 'content-generation'].includes(type)) {
+      const references = await this.deps.prisma.chapterReference.findMany({ where: { projectId, active: true } });
+      for (const reference of references) await usableSnapshot(this.deps.prisma, reference.snapshotId, projectId, actorId);
+      if (references.length) { requiredModules.push('knowledge-base'); processingScope.includesSharedData = true; }
+    }
+    const config = bindConfigScope(await buildMerged(this.deps.prisma, actorId), processingScope);
     const diagnosticContext = {
-      traceId: task.diagnostic_trace_id!, projectId, userId: project.ownerId,
+      traceId: task.diagnostic_trace_id!, projectId, userId: actorId,
       taskId: task.task_id, taskType: type, operation: type,
     };
     await this.deps.aiDiagnostics?.startRun(diagnosticContext, {
@@ -484,6 +525,7 @@ export class TaskService {
 
     const ctx: TaskRunnerContext = {
       projectId,
+      userId: actorId,
       prisma: this.deps.prisma,
       aiService: runnerAiService,
       agentService: this.deps.agentService,
@@ -500,7 +542,7 @@ export class TaskService {
 
     // fire-and-forget：runner 自驱推进度，完成/失败各自 updateTask。
     Promise.resolve()
-      .then(() => runner(ctx))
+      .then(() => withProcessingScope(processingScope, () => runner(ctx)))
       .catch(async (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         const diagnosticError = error as { diagnosticCode?: string; diagnosticStage?: string };
@@ -528,6 +570,10 @@ export class TaskService {
       });
 
     return currentTask;
+    } catch (error) {
+      if (ps.activeTasks.get(type)?.task_id === task.task_id) { ps.activeTasks.delete(type); ps.activeTaskControls.delete(type); }
+      throw error;
+    }
   }
 
   // ---- 崩溃恢复（进程重启后内存丢失，DB 残留 running/pausing） ----
@@ -696,7 +742,8 @@ export class TaskService {
     return this.startTyped(projectId, 'bid-analysis', payload, {});
   }
 
-  startOutlineGeneration(projectId: number, payload?: Record<string, unknown>): Promise<BackgroundTaskState> {
+  async startOutlineGeneration(projectId: number, payload?: Record<string, unknown>): Promise<BackgroundTaskState> {
+    if (await this.deps.prisma.technicalPlanOutlineNode.count({ where: { projectId, manualLocked: true } })) throw new Error('已有人工锁定正文，重新生成目录已被阻止；可在目录编辑页调整现有结构');
     const p = payload || {};
     return this.startTyped(projectId, 'outline-generation', payload, {
       outlineMode: 'aligned',
@@ -739,8 +786,9 @@ export class TaskService {
     return this.startTyped(projectId, 'rejection-check-run', payload, (p.workspaceState as Record<string, unknown>) || {});
   }
 
-  startDuplicateAnalysis(projectId: number, payload?: Record<string, unknown>): Promise<BackgroundTaskState> {
-    return this.startTyped(projectId, 'duplicate-analysis', payload, {});
+  async startDuplicateAnalysis(projectId: number, payload?: Record<string, unknown>): Promise<BackgroundTaskState> {
+    const state = await this.deps.duplicateCheckStore.loadDuplicateCheck(projectId);
+    return this.startTyped(projectId, 'duplicate-analysis', { ...payload, tenderFiles: state.tenderFiles, tenderFile: state.tenderFile, bidFiles: state.bidFiles }, {});
   }
 
   startResponseDeviationGeneration(projectId: number, payload?: Record<string, unknown>): Promise<BackgroundTaskState> {

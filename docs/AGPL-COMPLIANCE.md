@@ -8,7 +8,7 @@
 - 根目录 `NOTICE`；
 - 原作者 `mark / yibiaoai`；
 - 原始仓库 https://github.com/FB208/OpenBidKit_Yibiao；
-- 修改版说明、修改者 `jdcome` 和修改年份 2026；
+- 修改版说明、Web 修改者 `jdcome`、本轮维护者 `palmtom316` 和修改年份 2026；
 - 网络用户获取当前运行修改版对应源码的显著入口。
 
 ## 网络部署
@@ -19,9 +19,11 @@
 
 默认修改版源码地址为：
 
-https://github.com/jdcome/OpenBidKit-Yibiao-Web
+https://github.com/palmtom316/yibiao-web
 
-可通过客户端环境变量 `VITE_SOURCE_REPOSITORY_URL` 指向实际发布当前部署版本的仓库或源码下载地址。
+正式发布前应公开对应源码提交，并设置 BUILD_COMMIT；开发工作区的 development 标识不代表已有对应版本发布。
+
+可通过客户端构建时环境变量 `VITE_SOURCE_REPOSITORY_URL` 指向实际发布当前部署版本的仓库或源码下载地址。
 
 ## 品牌资产
 

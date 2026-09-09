@@ -1,3 +1,4 @@
+import { generateIllustrations } from '../../illustrations/service';
 // L4 runner: content-generation（技术方案正文生成）编排入口。
 // 移植自 client/electron/services/contentGenerationTask.cjs:2946-6515（runContentGenerationTask）。
 //
@@ -302,7 +303,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
     throw new Error('请先生成目录，再生成正文');
   }
 
-  const globalFacts = Array.isArray(storedPlan.globalFacts) ? storedPlan.globalFacts : [];
+  const globalFacts = Array.isArray(storedPlan.globalFacts) ? storedPlan.globalFacts.filter((group: any) => !String(group.id || '').startsWith('confirmed_reference_')) : [];
   const globalFactsText = formatGlobalFactsForPrompt(globalFacts);
   if (!globalFactsText || storedPlan.globalFactsTask?.status !== 'success') {
     throw new Error('请先完成全局事实设定，再生成正文');
@@ -356,8 +357,9 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
     outlineData = { ...outlineData, outline: clearOutlineContent(outlineData.outline) };
   }
 
-  let leaves = collectLeafContexts(outlineData.outline);
+  let leaves = collectLeafContexts(outlineData.outline).filter((leaf) => leaf.item.manualLocked !== true);
   if (!leaves.length) {
+    if (collectLeafContexts(outlineData.outline).length) { await updateTask({ status: 'success', progress: 100, logs: ['所有正文小节均已人工锁定，保留原文与已确认引用。'] }); return; }
     throw new Error('当前目录没有可生成正文的小节');
   }
   const regenerateRequirement = resume ? contentRuntime.regenerate_requirement : String(payload.requirement || '').trim();
@@ -812,11 +814,11 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
     await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
   }
 
-  knowledgeItems = loadContentKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, (message: string) => {
+  knowledgeItems = await loadContentKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, (message: string) => {
     logs = [...logs, message];
   });
   allowedKnowledgeItemIds = new Set(knowledgeItems.map((item: any) => item.id));
-  knowledgeContentMap = loadContentKnowledgeContentMap(knowledgeBaseService, referenceKnowledgeDocumentIds, (message: string) => {
+  knowledgeContentMap = await loadContentKnowledgeContentMap(knowledgeBaseService, referenceKnowledgeDocumentIds, (message: string) => {
     logs = [...logs, message];
   });
 
@@ -1709,7 +1711,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
       delete storedContentPlans[itemId];
       contentPlans.delete(itemId);
     }
-    leaves = collectLeafContexts(outlineData.outline as any[]);
+    leaves = collectLeafContexts(outlineData.outline as any[]).filter((leaf) => leaf.item.manualLocked !== true);
     sections = createInitialSections(leaves, sections);
     storedContentPlans = pruneContentGenerationPlans(storedContentPlans, leaves);
     pruneRuntimeContentPlans();
@@ -3904,6 +3906,14 @@ workspace 文件说明：
       contentGenerationTask: finalizeTask,
     });
     await updateTask({ status: finalStatus, progress: finalProgress, logs, stats: statsSnapshot(), pause_requested: false }, technicalPlan as unknown as boolean);
+    if (generationOptions.useHtmlImages || generationOptions.useMermaidImages || generationOptions.useAiImages) {
+      try {
+        const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: ctx.projectId } });
+        const illustrated = await generateIllustrations(ctx.prisma, ctx.projectId, ctx.userId || project.ownerId, generationOptions, undefined, undefined, ctx.agentService);
+        logs = [...logs, ...(illustrated.warnings || []), '配图阶段已结束，失败图片可单独重试。'];
+      } catch (error) { logs = [...logs, `配图未完成，正文已保留：${error instanceof Error ? error.message : '请重试配图'}`]; }
+      await updateTask({ status: finalStatus, progress: finalProgress, logs, stats: statsSnapshot() });
+    }
   } catch (error: any) {
     if (isAiQueueScopePausedError(error)) {
       await persistPausedContentGeneration('正文生成已暂停，未发起的 AI 请求已从队列丢弃，可导出当前已完成内容，稍后继续。');

@@ -1,6 +1,7 @@
 // 导出格式纯工具与类型（移植自 client/electron/services/exportService.cjs 的常量与无副作用函数）。
 // docx 耦合的常量（如 ORDERED_LIST_WORD_STYLES 引用 LevelFormat）放在 docxBuilder.ts。
-import type { AlignmentType } from 'docx';
+import type { AlignmentType as DocxAlignment } from 'docx';
+type AlignmentType = (typeof DocxAlignment)[keyof typeof DocxAlignment];
 
 // ── 中文字号 → half-pt（docx size 单位是 half-point）────────────────────────
 export const SIZE_TO_HALF_PT: Record<string, number> = {
@@ -145,6 +146,7 @@ export interface OutlineItemLike {
 }
 
 export interface ExportWordPayload {
+  assetResolver?: import('./images').ImageContext['assetResolver'];
   requestId?: string;
   project_code?: string;
   project_name?: string;

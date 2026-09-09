@@ -1,6 +1,6 @@
 # Web 版改造计划（审核修订版，可交接实施）
 
-修订日期：2026-09-07。状态：**计划已审核修订，实施任务尚未开始验收**。
+修订日期：2026-09-07。状态：**改造代码已进入本地验收；逐项状态和外部条件见 [实施状态](implementation/STATUS.md)，尚未生产发布**。
 
 本文是 [palmtom316/yibiao-web](https://github.com/palmtom316/yibiao-web) 的目标范围、实施依赖与验收依据。当前已实现能力仍以 [功能清单](FEATURES.md)、[架构](ARCHITECTURE.md) 和 [部署指南](DEPLOYMENT.md) 为准；不得把本文的待办描述为已上线功能。开源归属遵循 [AGPL 合规](AGPL-COMPLIANCE.md)。
 
@@ -226,7 +226,7 @@ PerformanceTeamMember(recordId, profileId, role)
 
 ## 6. 分阶段实施任务
 
-本节任务均为 **TODO**。标记 DONE 的条件见第 11 节。每项均须交付代码/文档、适用测试证据和明确回退路径，不能只完成 UI 或只通过空库启动。
+本节保留审核时冻结的任务与验收范围，实时状态见 [实施状态](implementation/STATUS.md)。标记 DONE 的条件见第 11 节。每项均须交付代码/文档、适用测试证据和明确回退路径，不能只完成 UI 或只通过空库启动。
 
 ### 6.1 P0：可部署、可恢复的基础应用
 

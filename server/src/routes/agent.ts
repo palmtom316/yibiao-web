@@ -1,3 +1,5 @@
+import { withProcessingScope } from '../security/processing';
+import { getProjectIdHeader } from '../auth/middleware';
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import type { JwtPayload } from '../auth/middleware';
@@ -30,9 +32,11 @@ export async function agentRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
     return project?.ownerId === user.id;
   }
 
-  app.get('/agent/status', async () => {
+  app.get('/agent/status', async (req) => {
     if (!agentService?.getStatus) return stoppedStatus('Agent sidecar 未初始化');
-    return agentService.getStatus();
+    const status = agentService.getStatus();
+    const user = (req as FastifyRequest & { user: JwtPayload }).user;
+    return user.role === 'admin' ? status : { phase: status.phase, available: status.available, queued: status.queued, message: status.available ? '受控文件 Agent 可用（命令工具已关闭）' : 'Agent 不可用，可使用普通生成' };
   });
 
   app.post('/agent/self-check', async (req, reply) => {
@@ -46,7 +50,7 @@ export async function agentRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
       return { success: false, message: 'Agent sidecar 未初始化，无法运行自检' };
     }
     try {
-      const report = await agentService.runSelfCheck();
+      const report = await withProcessingScope({ kind: 'administration', userId: user.id }, () => agentService.runSelfCheck!());
       return { success: true, report };
     } catch (err) {
       reply.code(500);
@@ -78,7 +82,9 @@ export async function agentRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
   // POST /api/agent/answer           — 登录用户作答：{question_id, option_id, custom_answer?}。
   app.get('/agent/pending-question', async (req) => {
     if (!agentService?.getPendingQuestion) return { question: null };
-    const question = agentService.getPendingQuestion();
+    const projectId = Number(getProjectIdHeader(req));
+    if (!Number.isSafeInteger(projectId) || projectId <= 0) return { question: null };
+    const question = agentService.getPendingQuestion({ projectId });
     if (!question) return { question: null };
     const allowed = await canAccessAgentQuestion(req, question);
     return { question: allowed ? question : null };
@@ -89,12 +95,12 @@ export async function agentRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
       reply.code(503);
       return { success: false, message: '当前 Agent 运行时不支持 ask-user 提问' };
     }
-    const body = (req.body || {}) as { question_id?: string; option_id?: string; custom_answer?: string };
+    const body = (req.body || {}) as { question_id?: string; option_id?: string; custom_answer?: string; answer_payload?: unknown };
     if (!body.question_id || !body.option_id) {
       reply.code(400);
       return { success: false, message: '缺少 question_id 或 option_id' };
     }
-    const question = agentService.getPendingQuestion?.() || null;
+    const question = agentService.getPendingQuestion?.({ questionId: body.question_id }) || null;
     if (!question || question.question_id !== body.question_id) {
       reply.code(409);
       return { success: false, message: '该提问已失效或已被作答' };
@@ -104,11 +110,19 @@ export async function agentRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
       reply.code(403);
       return { success: false, message: '无权回答该项目的 Agent 提问' };
     }
+    const option = question.options.find((item) => item.id === body.option_id);
+    const meta = question.metadata as { kind?: string; items?: { id: string }[] } | undefined;
+    const ids = (body.answer_payload as { selectedIds?: unknown } | undefined)?.selectedIds;
+    if (!option || (option.custom && (typeof body.custom_answer !== 'string' || !body.custom_answer.trim() || body.custom_answer.length > 10000))
+      || (meta?.kind === 'outline-v2-selection' && body.option_id === 'confirm' && (!Array.isArray(ids) || !ids.length || ids.some((id) => !meta.items?.some((item) => item.id === id))))) {
+      return reply.code(400).send({ success: false, message: '请提交有效选项、所选目录或具体要求' });
+    }
     try {
       const result = await agentService.answerQuestion({
         question_id: body.question_id,
         option_id: body.option_id,
         custom_answer: body.custom_answer,
+        answer_payload: body.answer_payload,
       });
       if (!result.answered) {
         reply.code(409);

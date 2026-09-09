@@ -36,6 +36,17 @@ model User {
 
 // 项目（多项目重构对标 92）。每个用户可拥有多个项目；工作区数据按 projectId 分区。
 model Project {
+  businessRequirements BusinessRequirement[]
+  businessMatches BusinessMatch[]
+  referenceSnapshots ProjectReferenceSnapshot[]
+  businessRevisions BusinessResponseRevision[]
+  businessPackages BusinessPackage[]
+  chapterReferences ChapterReference[]
+  allowExternalProcessing Boolean @default(false)
+  bidDeadline DateTime? @db.Date
+  documentSources DocumentSource[]
+  documentAssets DocumentAsset[]
+  backgroundJobs BackgroundJob[]
   id          Int      @id @default(autoincrement())
   projectCode String   @unique // "XM2026-0001"，服务端生成
   name        String
@@ -152,6 +163,8 @@ model DocsArticle {
 
 // 技术方案元数据（每项目一行）。原 singleton PK=userId → Web 多项目 PK=projectId。
 model TechnicalPlanMeta {
+  templateExtractionJson Json?
+  originalPlanSourceId String?
   projectId                       Int    @id
   userId                          Int?
   workflowKind                   String @default("technical-plan")
@@ -257,6 +270,7 @@ model TechnicalPlanReferenceDoc {
 // 技术方案大纲节点（自引用树，按项目隔离）。parentNodeId 为普通列（P3 处理级联）。
 // nodeId 跨项目不保证唯一，复合主键 (projectId, nodeId)。
 model TechnicalPlanOutlineNode {
+  manualLocked Boolean @default(false)
   projectId             Int
   userId                Int?
   nodeId                String
@@ -364,6 +378,15 @@ model KnowledgeFolder {
 
 // 知识库文档（共享，属某文件夹）。
 model KnowledgeDocument {
+  performanceLinks PerformanceKnowledgeDocument[]
+  version Int @default(1)
+  archivedAt DateTime?
+  createdByUserId Int?
+  updatedByUserId Int?
+
+  sources DocumentSource[]
+  assets DocumentAsset[]
+  backgroundJobs BackgroundJob[]
   documentId                     String @id
   folderId                       String
   fileName                       String
@@ -432,6 +455,12 @@ model KnowledgeCandidateItem {
 
 // 知识库正式条目（共享，最终保留的参考条目）。
 model KnowledgeItem {
+  performanceLinks PerformanceKnowledgeItem[]
+  version Int @default(1)
+  archivedAt DateTime?
+  createdByUserId Int?
+  updatedByUserId Int?
+
   id           Int     @id @default(autoincrement())
   documentId   String
   itemId       String
@@ -537,6 +566,19 @@ model KnowledgeMatchBatch {
 // =============================================================================
 
 model AssetItem {
+  category String?
+  certificateNo String?
+  qualificationLevel String?
+  holderName String?
+  issuer String?
+  validFrom DateTime? @db.Date
+  validityKind String @default("unknown")
+  performanceLinks PerformanceAsset[]
+  version Int @default(1)
+  archivedAt DateTime?
+  createdByUserId Int?
+  updatedByUserId Int?
+
   id         String    @id @default(cuid())
   library    String
   name       String
@@ -559,6 +601,12 @@ model AssetItem {
 // =============================================================================
 
 model PersonnelProfile {
+  performanceTeamLinks PerformanceTeamMember[]
+  version Int @default(1)
+  archivedAt DateTime?
+  createdByUserId Int?
+  updatedByUserId Int?
+
   id           String   @id @default(cuid())
   name         String
   department   String   @default("")
@@ -574,6 +622,16 @@ model PersonnelProfile {
 }
 
 model PersonnelCertificate {
+  certificateNo String?
+  qualificationLevel String?
+  issuer String?
+  validFrom DateTime? @db.Date
+  validityKind String @default("unknown")
+  version Int @default(1)
+  archivedAt DateTime?
+  createdByUserId Int?
+  updatedByUserId Int?
+
   id         String   @id @default(cuid())
   profileId  String
   profile    PersonnelProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
@@ -1128,4 +1186,338 @@ model ResponseDeviationRow {
   @@index([projectId, sortOrder])
   @@index([projectId, sourceFingerprint])
   @@map("response_deviation_rows")
+}
+
+// P1: originals and successful parse versions have independent immutable identities.
+model DocumentSource {
+  id String @id @default(uuid())
+  projectId Int?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  knowledgeDocumentId String?
+  knowledgeDocument KnowledgeDocument? @relation(fields: [knowledgeDocumentId], references: [documentId], onDelete: Cascade)
+  originalName String
+  mimeType String
+  size Int
+  sha256 String
+  relativePath String
+  status String @default("ready")
+  currentParseVersion Int?
+  createdByUserId Int?
+  createdAt DateTime @default(now())
+  parses DocumentParseVersion[]
+  @@index([projectId, createdAt])
+  @@index([knowledgeDocumentId])
+  @@map("document_sources")
+}
+model DocumentParseVersion {
+  id String @id @default(uuid())
+  sourceId String
+  source DocumentSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  version Int
+  parser String
+  parserVersion String
+  status String @default("running")
+  warnings Json @default("[]")
+  sourceHash String
+  markdownHash String?
+  markdownPath String?
+  chars Int @default(0)
+  createdAt DateTime @default(now())
+  assets DocumentAsset[]
+  @@unique([sourceId, version])
+  @@map("document_parse_versions")
+}
+model DocumentAsset {
+  referenceSnapshotId String?
+  referenceSnapshot ProjectReferenceSnapshot? @relation("SnapshotImages", fields: [referenceSnapshotId, projectId], references: [id, projectId], onDelete: Cascade, map: "document_asset_snapshot_fk")
+  id String @id @default(uuid())
+  projectId Int?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  knowledgeDocumentId String?
+  knowledgeDocument KnowledgeDocument? @relation(fields: [knowledgeDocumentId], references: [documentId], onDelete: Cascade)
+  parseId String?
+  parse DocumentParseVersion? @relation(fields: [parseId], references: [id], onDelete: Cascade)
+  kind String @default("imported")
+  mimeType String
+  size Int
+  sha256 String
+  relativePath String
+  page Int?
+  block String?
+  createdAt DateTime @default(now())
+  @@index([projectId])
+  @@index([knowledgeDocumentId])
+  @@map("document_assets")
+}
+model BackgroundJob {
+  id String @id @default(uuid())
+  projectId Int?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  knowledgeDocumentId String?
+  knowledgeDocument KnowledgeDocument? @relation(fields: [knowledgeDocumentId], references: [documentId], onDelete: Cascade)
+  userId Int
+  kind String
+  requestKey String @unique
+  status String @default("queued")
+  progress Int @default(0)
+  input Json
+  result Json?
+  error String?
+  attempts Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([projectId, status])
+  @@index([userId, createdAt])
+  @@map("background_jobs")
+}
+
+model PerformanceRecord {
+  id String @id @default(uuid())
+  title String
+  ownerName String @default("")
+  location String @default("")
+  contractAmount Decimal? @db.Decimal(20, 2)
+  currency String @default("CNY")
+  contractSignedAt DateTime? @db.Date
+  startedAt DateTime? @db.Date
+  completedAt DateTime? @db.Date
+  durationText String @default("")
+  roleText String @default("")
+  projectType String @default("")
+  summary String @default("")
+  notes String @default("")
+  tags String[] @default([])
+  isPubliclyCitable Boolean @default(false)
+  version Int @default(1)
+  archivedAt DateTime?
+  createdByUserId Int?
+  updatedByUserId Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  assets PerformanceAsset[]
+  documents PerformanceKnowledgeDocument[]
+  items PerformanceKnowledgeItem[]
+  team PerformanceTeamMember[]
+  @@index([archivedAt, updatedAt])
+  @@index([projectType])
+  @@map("performance_records")
+}
+model PerformanceAsset {
+  recordId String
+  record PerformanceRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  assetItemId String
+  asset AssetItem @relation(fields: [assetItemId], references: [id], onDelete: Restrict)
+  @@id([recordId, assetItemId])
+  @@index([assetItemId])
+  @@map("performance_assets")
+}
+model PerformanceKnowledgeDocument {
+  recordId String
+  record PerformanceRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  documentId String
+  document KnowledgeDocument @relation(fields: [documentId], references: [documentId], onDelete: Restrict)
+  items PerformanceKnowledgeItem[]
+  @@id([recordId, documentId])
+  @@index([documentId])
+  @@map("performance_knowledge_documents")
+}
+model PerformanceKnowledgeItem {
+  recordId String
+  record PerformanceRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  documentId String
+  documentLink PerformanceKnowledgeDocument @relation(fields: [recordId, documentId], references: [recordId, documentId], onDelete: Cascade)
+  itemId String
+  item KnowledgeItem @relation(fields: [documentId, itemId], references: [documentId, itemId], onDelete: Restrict)
+  @@id([recordId, documentId, itemId])
+  @@index([documentId, itemId])
+  @@map("performance_knowledge_items")
+}
+model PerformanceTeamMember {
+  recordId String
+  record PerformanceRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  profileId String
+  profile PersonnelProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  role String
+  @@id([recordId, profileId, role])
+  @@index([profileId])
+  @@map("performance_team_members")
+}
+model ReferenceRevocation {
+  id String @id @default(uuid())
+  sourceType String
+  sourceId String
+  throughVersion Int
+  reason String
+  revokedByUserId Int
+  createdAt DateTime @default(now())
+  @@index([sourceType, sourceId])
+  @@map("reference_revocations")
+}
+model AuditEvent {
+  id String @id @default(uuid())
+  sourceType String
+  sourceId String
+  action String
+  version Int
+  actorUserId Int?
+  detail Json @default("{}")
+  createdAt DateTime @default(now())
+  @@index([sourceType, sourceId, createdAt])
+  @@map("audit_events")
+}
+model LegacyPersonnelMigration {
+  sourceId String @id
+  profileId String
+  certificateId String
+  sourceHash String
+  files Json
+  migratedByUserId Int
+  createdAt DateTime @default(now())
+  @@map("legacy_personnel_migrations")
+}
+
+model BusinessRequirement {
+  id String @id @default(uuid())
+  projectId Int
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  category String
+  rawText String
+  sourceId String?
+  sourceHash String
+  sourceLocator String @default("")
+  sectionId String @default("")
+  scopeFingerprint String
+  thresholds Json @default("{}")
+  referenceDate DateTime? @db.Date
+  extractionVersion Int @default(1)
+  originKey String
+  humanEdited Boolean @default(true)
+  active Boolean @default(true)
+  version Int @default(1)
+  createdByUserId Int
+  updatedByUserId Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  matches BusinessMatch[]
+  @@unique([id, projectId])
+  @@unique([projectId, originKey, extractionVersion])
+  @@index([projectId, active, createdAt])
+  @@map("business_requirements")
+}
+model BusinessMatch {
+  id String @id @default(uuid())
+  projectId Int
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirementId String
+  requirement BusinessRequirement @relation(fields: [requirementId, projectId], references: [id, projectId], onDelete: Cascade)
+  requirementVersion Int
+  candidateType String
+  candidateId String
+  candidateVersion Int
+  evidence Json
+  scopeFingerprint String
+  conclusion String @default("pending")
+  reason String @default("")
+  selected Boolean @default(false)
+  confirmedByUserId Int?
+  confirmedAt DateTime?
+  snapshotId String?
+  snapshot ProjectReferenceSnapshot? @relation(fields: [snapshotId, projectId], references: [id, projectId], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  @@index([requirementId, selected])
+  @@index([projectId])
+  @@map("business_matches")
+}
+model ProjectReferenceSnapshot {
+  imageAssets DocumentAsset[] @relation("SnapshotImages")
+  id String @id @default(uuid())
+  projectId Int
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceType String
+  sourceId String
+  sourceVersion Int
+  sourceHash String
+  data Json
+  provenance Json
+  allowedUses String[]
+  files Json @default("[]")
+  status String @default("staging")
+  error String?
+  confirmedByUserId Int
+  confirmedAt DateTime @default(now())
+  refreshOfId String?
+  matches BusinessMatch[]
+  revisions BusinessRevisionSnapshot[]
+  chapters ChapterReference[]
+  @@unique([id, projectId])
+  @@index([projectId, status])
+  @@index([sourceType, sourceId])
+  @@map("project_reference_snapshots")
+}
+model BusinessResponseRevision {
+  id String @id @default(uuid())
+  projectId Int
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  revision Int
+  requestKey String @unique
+  data Json
+  hash String
+  status String
+  createdByUserId Int
+  createdAt DateTime @default(now())
+  snapshots BusinessRevisionSnapshot[]
+  packages BusinessPackage[]
+  @@unique([id, projectId])
+  @@unique([projectId, revision])
+  @@map("business_response_revisions")
+}
+model BusinessRevisionSnapshot {
+  revisionId String
+  projectId Int
+  revision BusinessResponseRevision @relation(fields: [revisionId, projectId], references: [id, projectId], onDelete: Cascade)
+  snapshotId String
+  snapshot ProjectReferenceSnapshot @relation(fields: [snapshotId, projectId], references: [id, projectId], onDelete: Restrict)
+  @@id([revisionId, snapshotId])
+  @@index([snapshotId])
+  @@map("business_revision_snapshots")
+}
+model BusinessPackage {
+  id String @id @default(uuid())
+  projectId Int
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  revisionId String
+  revision BusinessResponseRevision @relation(fields: [revisionId, projectId], references: [id, projectId], onDelete: Cascade)
+  draft Boolean @default(false)
+  status String @default("staging")
+  relativePath String?
+  wordPath String?
+  sha256 String?
+  wordHash String?
+  manifest Json @default("{}")
+  createdAt DateTime @default(now())
+  @@unique([revisionId, draft])
+  @@map("business_packages")
+}
+model ChapterReference {
+  active Boolean @default(true)
+  id String @id @default(uuid())
+  projectId Int
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  nodeId String
+  snapshotId String
+  snapshot ProjectReferenceSnapshot @relation(fields: [snapshotId, projectId], references: [id, projectId], onDelete: Restrict)
+  locked Boolean @default(true)
+  insertedContentHash String
+  createdByUserId Int
+  createdAt DateTime @default(now())
+  @@unique([projectId, nodeId, snapshotId])
+  @@map("chapter_references")
+}
+model KnowledgeUseRestriction {
+  documentId String
+  performanceSourceId String
+  createdAt DateTime @default(now())
+  @@id([documentId, performanceSourceId])
+  @@index([performanceSourceId])
+  @@map("knowledge_use_restrictions")
 }

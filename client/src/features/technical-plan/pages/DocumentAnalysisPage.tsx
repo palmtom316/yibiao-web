@@ -1,3 +1,4 @@
+import DocumentSourcesPanel from '../components/DocumentSourcesPanel';
 import { useEffect, useState } from 'react';
 import { isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, useDocumentParseNotice, useToast } from '../../../shared/ui';
 import { useConfirmAction } from '../hooks/useConfirmAction';
@@ -258,6 +259,7 @@ function DocumentAnalysisPage({
           </div>
         </div>
 
+        <DocumentSourcesPanel />
         <div className="technical-document-upload-stack">
           <article className="technical-document-upload-row">
             <div className="technical-document-upload-label">

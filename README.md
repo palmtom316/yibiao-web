@@ -2,22 +2,22 @@
 
 基于 [OpenBidKit_Yibiao](https://github.com/FB208/OpenBidKit_Yibiao) 二次开发的非官方社区 Web 版，提供 React + Fastify + Prisma + PostgreSQL 的多用户部署形态。
 
-> 原作者：mark / yibiaoai。Web 二开贡献者：jdcome。本项目不是原作者的官方发布。
+> 原作者：mark / yibiaoai。Web 二开贡献者：jdcome；本轮改造维护：palmtom316。本项目不是原作者的官方发布。
 
-[当前修改版源码](https://github.com/jdcome/OpenBidKit-Yibiao-Web) · [原始项目](https://github.com/FB208/OpenBidKit_Yibiao) · [GNU AGPL-3.0](LICENSE) · [NOTICE](NOTICE) · [归属说明](ATTRIBUTION.md)
+[当前修改版源码](https://github.com/palmtom316/yibiao-web) · [原始项目](https://github.com/FB208/OpenBidKit_Yibiao) · [GNU AGPL-3.0](LICENSE) · [NOTICE](NOTICE) · [归属说明](ATTRIBUTION.md)
 
 ## 功能介绍
 
-本仓库提供可独立安装运行的 Web 版标书编制工作台，适合在企业内网或受控服务器中部署，供多人协作完成招标文件解析、方案编写、资料管理、标书检查和系统管理。重点功能包括：
+本仓库提供可独立安装运行的 Web 版标书编制工作台，适合在企业内网或受控服务器中部署，供多人各自管理项目并完成招标文件解析、方案编写、资料管理、标书检查和系统管理。重点功能包括：
 
 ## 现有功能简介
 
 - 仪表盘与多项目管理：展示项目统计、最近项目、资质到期提醒，并作为登录后的工作入口。
   
-- 标书生成：包含生成技术方案、已有方案扩写、投标计算器和响应与偏离表工作台。
+- 标书生成：包含生成技术方案、已有方案扩写、商务响应清单和响应与偏离表工作台。
   - 生成技术方案：上传招标文件，解析招标内容，按步骤生成技术方案并导出 Word。
   - 已有方案扩写：上传已有方案，在保留原方案真实可落地内容的基础上扩充和优化。
-  - 投标计算器：用于汇总综合报价、技术评分和商务评分规则，辅助计算标书最终得分。（预留接口，开发ing~）
+  - 商务响应清单：独立要求抽取、逐条件候选核验、人工确认、不可变资料引用及 Word/ZIP 交付。
   - 响应与偏离表工作台：复用招标原文和分析结果，生成技术响应与偏离表，人工填写响应内容。
     
 - 格式管理：管理我的模板、新建导出模板、Word 排版和编号格式。
@@ -36,7 +36,9 @@
   
 - 深色/浅色模式：登录后可在顶栏切换，选择会保存在浏览器本地。
 
-## 下一步开发计划
+## 改造实施状态
+
+已实现内容与实际验收、尚缺外部条件见 [实施状态](docs/implementation/STATUS.md)，当前分支尚未生产发布。
 
 本 fork 的改造单一真相是 [Web 版改造计划](docs/TRANSFORMATION-PLAN.md)：以本仓库为产品壳，按需移植官方桌面算法，并把公司资质 / 人员 / 业绩做成可被技术标和商务标引用的公司资产库。PVE/Docker、MinerU、OpenXmlHelper、业绩档案与商务匹配清单的阶段划分都以该文档为准。
 
@@ -48,11 +50,11 @@
 
 基础软件：
 
-- Node.js 20 或更高版本
-- npm 10 或更高版本
-- pnpm 10/11
-- PostgreSQL 15 或更高版本
-- 文档解析需要 LibreOffice，生产部署建议 24.x
+- Node.js 22.23.2（见 `.node-version`）
+- npm 10.9.3
+- pnpm 10.17.1
+- PostgreSQL 16（Compose 固定镜像摘要）
+- 文档解析需要 LibreOffice 与中文字体；Compose 镜像内置
 
 推荐硬件按“同时在线协作人数、上传文件体积、文档解析并发、AI 任务并发”共同决定。下面是内网部署的起步建议：
 
@@ -108,9 +110,7 @@ Copy-Item server\.env.example server\.env
 cd server
 pnpm install --frozen-lockfile
 pnpm exec prisma generate
-pnpm exec prisma db push
-pnpm run db:seed
-pnpm exec tsx prisma/seed-docs.ts
+pnpm run db:initialize
 pnpm run dev
 ```
 
@@ -137,18 +137,18 @@ npm run dev
 
 全新安装必须按以下顺序完成，随后才能将服务暴露到不受信任的网络：
 
-1. 在 `server/` 目录依次运行 Prisma generate、schema push 和 seed（即上一步中的 `pnpm exec prisma generate`、`pnpm exec prisma db push`、`pnpm run db:seed`）；
+1. 在 `server/` 目录依次运行 Prisma generate 与 `pnpm run db:initialize`（既有 db push 数据库先按部署指南 baseline）；
 2. 打开 Web 登录页；
 3. 使用 `admin/admin` 登录一次；
 4. 设置至少 12 位、且同时包含大写字母、小写字母、数字和特殊字符的新密码；
 5. 确认系统进入应用，并确认 `admin/admin` 已无法再次登录；
 6. 在将服务暴露到不受信任的网络前完成以上步骤。
 
-重复运行 `pnpm run db:seed` 不会重置已存在管理员的密码。重复运行 `pnpm exec tsx prisma/seed-docs.ts` 会刷新内置使用文档标题与正文，但不会覆盖管理员手动调整过的排序。
+重复运行 `pnpm run db:seed` 不会重置已存在管理员的密码。重复运行内置文档 seed 只补缺失项，保留已有标题、正文与排序；内容升级使用单独的版本化命令。
 
 ## 生产部署
 
-生产模式建议使用 Nginx 托管 `client/dist`，反向代理 `/api` 到 Fastify，PM2 使用项目内 `tsx` 启动 `server/src/index.ts`。详见 [部署指南](docs/DEPLOYMENT.md)。
+部署提供 Docker Compose 的 nginx/app/migrate/PostgreSQL 目标，实施验收状态见 [状态表](docs/implementation/STATUS.md)。保留单实例 PM2 路径。详见 [部署指南](docs/DEPLOYMENT.md)。
 
 ## 开源义务
 

@@ -1,3 +1,7 @@
+import { verifyTechnicalReferences } from '../business-bid/technical';
+import { loadAuthorizedAsset } from '../document/sources';
+import { imageTypeFromMime } from '../export/images';
+import { getUserId } from '../auth/middleware';
 // 导出 Word 路由（受保护、项目作用域——requireProject preHandler 挂 req.projectId）。
 // POST /api/export/word → 服务端渲染 docx 并以 attachment 流回浏览器。
 // 进度经 EventBus 的 export-progress 通道推 SSE（按 projectId 路由，requestId 过滤）。
@@ -5,6 +9,7 @@ import type { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyRepl
 import { getProjectId } from '../auth/middleware';
 import { exportWordToBuffer } from '../export/service';
 import type { ExportWordPayload } from '../export/format';
+import { createWorkspacePaths } from '../document/paths';
 import { eventBus } from '../events/bus';
 import { normalizeSubjectReplacements } from '../tasks/utils/subjectReplacement';
 
@@ -50,7 +55,11 @@ export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
       project_name: projectName,
       outline: Array.isArray(body?.outline) ? body.outline : [],
       export_format: body?.export_format ?? null,
-      base_dir: body?.base_dir || body?.baseDir,
+      base_dir: createWorkspacePaths(Number(projectId)).workspaceDir,
+      assetResolver: async (id) => {
+        const { asset, buffer } = await loadAuthorizedAsset(prisma, getUserId(req), id, Number(projectId));
+        return { buffer, type: imageTypeFromMime(asset.mimeType) };
+      },
       subject_replacement_comment_terms: subjectReplacementCommentTerms,
     };
 
@@ -67,6 +76,7 @@ export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
 
     let result;
     try {
+      await verifyTechnicalReferences(prisma, Number(projectId), getUserId(req), payload.outline || []);
       result = await exportWordToBuffer(payload, { onProgress });
     } catch (error) {
       const message = (error as Error).message || '导出失败';

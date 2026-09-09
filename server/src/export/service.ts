@@ -1,3 +1,4 @@
+import { exportQueue } from '../resources/queue';
 // 导出编排层（移植自 exportService.cjs createExportService.exportWord 2118-2193）。
 // 与桌面差异：
 //  - 去掉 dialog.showSaveDialog（浏览器用 Content-Disposition 触发下载，无需选保存路径）。
@@ -28,7 +29,7 @@ function buildExportFilename(payload: ExportWordPayload): string {
   return `${prefix}_${timestamp}.docx`;
 }
 
-export async function exportWordToBuffer(payload: ExportWordPayload, options: ExportWordOptions = {}): Promise<ExportWordResult> {
+async function exportWordToBufferImpl(payload: ExportWordPayload, options: ExportWordOptions = {}): Promise<ExportWordResult> {
   const outline = Array.isArray(payload?.outline) ? payload.outline : [];
   if (!outline.length) {
     throw new Error('大纲为空，无法导出 Word 文件。');
@@ -43,6 +44,7 @@ export async function exportWordToBuffer(payload: ExportWordPayload, options: Ex
       outline,
       export_format: payload.export_format ?? null,
       base_dir: payload.base_dir || payload.baseDir,
+      assetResolver: payload.assetResolver,
       subject_replacement_comment_terms: payload.subject_replacement_comment_terms,
     },
     { onProgress, warnings: [] },
@@ -56,4 +58,8 @@ export async function exportWordToBuffer(payload: ExportWordPayload, options: Ex
   });
 
   return { buffer, filename, warnings, stats };
+}
+
+export function exportWordToBuffer(...args: Parameters<typeof exportWordToBufferImpl>): ReturnType<typeof exportWordToBufferImpl> {
+  return exportQueue.run(() => exportWordToBufferImpl(...args), (position) => args[1]?.onProgress?.({ phase: 'queued', progress: 0, message: `导出排队中，前方 ${position} 个任务`, warnings: [] }));
 }

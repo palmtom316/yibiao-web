@@ -1,3 +1,9 @@
+import { assertSourceUnlinked, assertKnowledgeCitable, audit } from '../ledger/lifecycle';
+import { currentProcessingScope } from '../security/processing';
+import { requireKnowledgeAccess, ApiError } from '../security/access';
+import { expectedVersion } from '../ledger/validation';
+import { getDataDir } from '../document/paths';
+import { resolveInside } from '../security/files';
 // 知识库命名空间的 PG-backed 状态层（公司共享，无 userId 隔离）。
 // 忠实移植自 client/electron/services/knowledgeBaseStore.cjs（纯 DB 部分）+
 // knowledgeBaseService.cjs 的 envelope 包装（{success,message,index} 折进各方法）。
@@ -68,6 +74,8 @@ function reorderIds(ids: string[], draggedId: string, targetId: string, position
 // 渲染器 KnowledgeDocument DTO（snake_case，省略 FS 字段）。
 export interface DocumentDto {
   id: string;
+  version: number;
+  archivedAt: string | null;
   folder_id: string;
   file_name: string;
   status: string;
@@ -96,6 +104,8 @@ interface FolderDto {
 
 function documentFromRow(row: {
   documentId: string;
+  version?: number;
+  archivedAt?: Date | null;
   folderId: string;
   fileName: string;
   status: string;
@@ -115,6 +125,8 @@ function documentFromRow(row: {
 }): DocumentDto {
   const dto: DocumentDto = {
     id: row.documentId,
+    version: row.version || 1,
+    archivedAt: row.archivedAt?.toISOString() || null,
     folder_id: row.folderId,
     file_name: row.fileName,
     status: normalizeStatus(row.status),
@@ -303,6 +315,7 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
   // match_batches 归 match_batches、items/reports/discarded 归 save_result）。错误旧实现把 markdown_chars
   // 在清 build_blocks 时一起抹掉，导致 retry 后 markdown 元数据丢失——已对齐桌面分组。
   async function clearDocumentProcessingFromStep(documentId: string, stepKey: string): Promise<void> {
+    await assertSourceUnlinked(prisma, 'knowledge-document', documentId);
     const fromIndex = stepKeys.indexOf(stepKey);
     if (fromIndex < 0) return;
     const tailKeys = stepKeys.slice(fromIndex);
@@ -413,6 +426,8 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
   // 的文档误标 error。允许显式覆盖以便测试。
   async function recoverInterruptedDocuments(activeDocumentIds: string[] = getActiveExtractionIds()): Promise<DocumentDto[]> {
     const activeIds = new Set((Array.isArray(activeDocumentIds) ? activeDocumentIds : []).map((id) => String(id || '').trim()).filter(Boolean));
+    const background = await prisma.backgroundJob.findMany({ where: { kind: 'knowledge-prepare', status: { in: ['queued', 'running'] } }, select: { knowledgeDocumentId: true } });
+    for (const job of background) if (job.knowledgeDocumentId) activeIds.add(job.knowledgeDocumentId);
     const nonSuccess = await prisma.knowledgeDocument.findMany({
       where: { status: { not: 'success' } },
       select: { documentId: true, status: true },
@@ -457,13 +472,14 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
     return recovered.map(documentFromRow);
   }
 
-  async function list(): Promise<{ folders: FolderDto[]; documents: DocumentDto[] }> {
+  async function list(archived = false): Promise<{ folders: FolderDto[]; documents: DocumentDto[] }> {
     await recoverInterruptedDocuments();
     const folderRows = await prisma.knowledgeFolder.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] });
     const folders = folderRows.map(folderFromRow);
     const folderOrder = new Map(folderRows.map((f, i) => [f.folderId, i]));
     // 桌面 ORDER BY COALESCE(f.sort_order,0), folder_id, sort_order, created_at DESC, document_id
     const docRows = await prisma.knowledgeDocument.findMany({
+        where: { archivedAt: archived ? { not: null } : null },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }, { documentId: 'asc' }],
     });
     const documents = docRows
@@ -526,30 +542,49 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
     return { success: true, message: '文件夹排序已保存', index: await list() };
   }
 
-  async function deleteFolder(folderId: string): Promise<{ success: true; message: string }> {
+  async function deleteFolder(folderId: string, actorId?: number): Promise<{ success: true; message: string }> {
     const folder = await prisma.knowledgeFolder.findUnique({ where: { folderId } });
     if (!folder) throw new Error('知识库文件夹不存在');
     const childDocs = await prisma.knowledgeDocument.findMany({
       where: { folderId },
-      select: { documentId: true, fileName: true },
+      select: { documentId: true, fileName: true, version: true },
     });
+    for (const doc of childDocs) await assertDocumentIdle(doc.documentId);
     await prisma.$transaction(async (client) => {
       for (const doc of childDocs) {
-        await cascadeDeleteDocument(doc.documentId, client);
+        const updated = await client.knowledgeDocument.updateMany({ where: { documentId: doc.documentId, version: doc.version }, data: { archivedAt: new Date(), version: { increment: 1 }, updatedByUserId: actorId } });
+        if (!updated.count) throw new ApiError(409, '文档已变化，请刷新后重新归档');
+        await audit(client, 'knowledge-document', doc.documentId, 'archive', doc.version + 1, actorId);
       }
       await client.knowledgeFolder.delete({ where: { folderId } });
     });
-    return { success: true, message: `已删除文件夹“${folder.name}”及 ${childDocs.length} 个文档` };
+    return { success: true, message: `已移除文件夹“${folder.name}”，其中 ${childDocs.length} 个文档已归档，原件和引用保留` };
   }
 
-  async function deleteDocument(documentId: string): Promise<{ success: true; message: string }> {
+  async function assertDocumentIdle(documentId: string) {
+    if (getActiveExtractionIds().includes(documentId) || await prisma.backgroundJob.count({ where: { knowledgeDocumentId: documentId, status: { in: ['running', 'queued'] } } })) throw new ApiError(409, '文档正在处理，请完成或取消任务后再归档/删除');
+  }
+  async function deleteDocument(documentId: string, versionValue?: unknown, actorId?: number, permanent = false): Promise<{ success: true; message: string }> {
     const row = await getDocumentRow(documentId);
-    // FS 级联：删整个 document_dir（source<ext>/content.md/...，桌面同名行为）。
-    await fs.rm(kb.resolve(row.documentDir), { recursive: true, force: true }).catch(() => undefined);
-    await prisma.$transaction(async (client) => {
-      await cascadeDeleteDocument(documentId, client);
+    const version = versionValue === undefined && !permanent ? row.version : expectedVersion(versionValue);
+    await assertDocumentIdle(documentId);
+    const sources = permanent ? await prisma.documentSource.findMany({ where: { knowledgeDocumentId: documentId } }) : [];
+    await prisma.$transaction(async (tx) => {
+      if (permanent) await assertSourceUnlinked(tx, 'knowledge-document', documentId);
+      const updated = await tx.knowledgeDocument.updateMany({ where: { documentId, version }, data: { archivedAt: new Date(), version: { increment: 1 }, updatedByUserId: actorId } });
+      if (!updated.count) throw new ApiError(409, '文档已变化，请刷新');
+      if (permanent) await cascadeDeleteDocument(documentId, tx);
+      await audit(tx, 'knowledge-document', documentId, permanent ? 'delete' : 'archive', version + 1, actorId);
     });
-    return { success: true, message: `已删除文档“${row.fileName}”` };
+    if (permanent) {
+      await fs.rm(kb.resolve(row.documentDir), { recursive: true, force: true });
+      for (const source of sources) {
+        const directory = path.dirname(source.relativePath);
+        if (path.basename(directory) !== source.id) throw new ApiError(409, '原件目录不符合清理契约，请管理员检查');
+        await fs.rm(resolveInside(getDataDir(), directory, false), { recursive: true, force: true });
+      }
+    }
+    return { success: true, message: permanent ? `已物理删除文档“${row.fileName}”，项目引用副本保留` : `已归档文档“${row.fileName}”，原件与历史引用保留` };
   }
 
   async function moveDocument(
@@ -670,7 +705,10 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
   }
 
   async function readItems(documentId: string): Promise<Array<{ id: string; title: string; resume: string; content: string; source_block_ids: string[]; source_file?: string }>> {
-    await getDocumentRaw(documentId);
+    const scope = currentProcessingScope();
+    if (scope?.kind === 'project') { scope.includesSharedData = true; await requireKnowledgeAccess(prisma, scope.userId); await assertKnowledgeCitable(prisma, [documentId]); }
+    const document = await getDocumentRow(documentId);
+    if (scope?.kind === 'project' && (document.archivedAt || document.status !== 'success')) throw new ApiError(409, '知识文档已归档或尚未完成，不可用于生成');
     const blockRows = await prisma.knowledgeItemBlock.findMany({
       where: { documentId },
       orderBy: [{ itemId: 'asc' }, { sortOrder: 'asc' }],
@@ -683,7 +721,7 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
       blocksByItem.set(row.itemId, list);
     }
     const items = await prisma.knowledgeItem.findMany({
-      where: { documentId },
+      where: { documentId, archivedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
     });
     return items.map((row) => {
@@ -773,8 +811,13 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
   async function getOutlineReferences(documentIds: unknown): Promise<{ items: Array<{ id: string; title: string; resume: string }> }> {
     const ids = Array.isArray(documentIds) ? documentIds.map((id) => String(id || '').trim()).filter(Boolean) : [];
     if (!ids.length) return { items: [] };
+    await assertKnowledgeCitable(prisma, ids);
+    const scope = currentProcessingScope();
+    if (scope) await requireKnowledgeAccess(prisma, scope.userId);
+    if (scope?.kind === 'project') scope.includesSharedData = true;
+    if (!ids.length) return { items: [] };
     const successDocs = await prisma.knowledgeDocument.findMany({
-      where: { documentId: { in: ids }, status: 'success' },
+      where: { documentId: { in: ids }, status: 'success', archivedAt: null },
       select: { documentId: true },
     });
     const seen = new Set<string>();
@@ -796,6 +839,19 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
   }
 
   // Web 绿地部署无 legacy index.json，恒不需迁移。保留 meta 行查询以维持契约字段。
+  async function readReferences(documentIds: string[], options: { includeMarkdown?: boolean; includeItems?: boolean } = {}) {
+    const ids = [...new Set(documentIds)];
+    if (!ids.length) return [];
+    const scope = currentProcessingScope();
+    if (scope) await requireKnowledgeAccess(prisma, scope.userId);
+    if (scope?.kind === 'project') scope.includesSharedData = true;
+    await assertKnowledgeCitable(prisma, ids);
+    const documents = await prisma.knowledgeDocument.findMany({ where: { documentId: { in: ids }, status: 'success', archivedAt: null } });
+    if (documents.length !== ids.length) throw new ApiError(409, '参考知识文档已变化或不可引用，请刷新选择');
+    return Promise.all(ids.map(async (id) => ({ documentId: id, fileName: documents.find((d) => d.documentId === id)!.fileName,
+      ...(options.includeMarkdown ? { markdown: await readMarkdown(id) } : {}), ...(options.includeItems ? { items: await readItems(id) } : {}) })));
+  }
+
   async function getMigrationStatus(): Promise<{
     needsMigration: false;
     legacyFolderCount: 0;
@@ -1005,6 +1061,7 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
   }
 
   return {
+    db: prisma,
     list,
     createFolder,
     renameFolder,
@@ -1033,6 +1090,7 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
     readItems,
     readAnalysis,
     getOutlineReferences,
+    readReferences,
     getMigrationStatus,
     recoverInterruptedDocuments,
   };

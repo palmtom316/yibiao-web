@@ -33,6 +33,7 @@ import { isAgentBusyResult } from '../../agent/types';
 export type LogFn = (message: string, progress?: number) => void | Promise<void>;
 
 export interface OutlineItem {
+  mirrorSourceText?: string;
   id?: string;
   title?: string;
   description?: string;
@@ -79,7 +80,7 @@ export interface OutlineWorkspaceStore {
 }
 
 export interface OutlineKnowledgeBaseService {
-  getOutlineReferences?(documentIds: string[]): { items: Array<{ id: string; title: string; resume: string }> };
+  getOutlineReferences?(documentIds: string[]): { items: Array<{ id: string; title: string; resume: string }> } | Promise<{ items: Array<{ id: string; title: string; resume: string }> }>;
 }
 
 interface CollectJsonOptions {
@@ -450,11 +451,11 @@ function formatKnowledgePatchOutlineContext(items: OutlineItem[]): string {
   return lines.join('\n');
 }
 
-export function loadOutlineKnowledgeItems(
+export async function loadOutlineKnowledgeItems(
   knowledgeBaseService: OutlineKnowledgeBaseService | null | undefined,
   documentIds: string[],
   log: LogFn,
-): Array<{ id: string; title: string; resume: string }> {
+): Promise<Array<{ id: string; title: string; resume: string }>> {
   if (!documentIds.length) return [];
   if (!knowledgeBaseService?.getOutlineReferences) {
     log('未找到知识库读取服务，跳过参考知识库。', 6);
@@ -462,7 +463,7 @@ export function loadOutlineKnowledgeItems(
   }
   try {
     log(`正在读取 ${documentIds.length} 个参考知识库文档。`, 6);
-    const result = knowledgeBaseService.getOutlineReferences(documentIds);
+    const result = await knowledgeBaseService.getOutlineReferences(documentIds);
     const items = Array.isArray(result?.items) ? result.items : [];
     log(items.length ? `已读取 ${items.length} 条轻量知识条目。` : '未读取到可用知识库条目，将按普通目录生成。', 7);
     return items;
@@ -2003,7 +2004,7 @@ export async function collectJson(aiService: OutlineAiService, options: CollectJ
 // ====================================================================
 
 /** Agent 修复上下文：FinalOutlineContext 的宽松超集（original-outline 抽取分支不带 groups 等）。 */
-interface AgentRecoveryContext extends Partial<FinalOutlineContext> {
+interface AgentRecoveryContext extends Partial<Omit<FinalOutlineContext, 'outline'>> {
   recoveryKind?: string;
   title?: string;
   outputFile?: string;
@@ -2932,7 +2933,7 @@ export async function alignedWorkflow(aiService: OutlineAiService, agentService:
       groups: [],
       finalReview,
       workflowKind: 'technical-plan',
-      outlineExpansionMode: (payload?.outlineExpansionMode as string) || 'ai-complement',
+      outlineExpansionMode: payload?.outlineExpansionMode === 'original-only' ? 'original-only' : 'ai-complement',
       recoveryReason: finalReview.suggestions.join('；'),
       startLogMessage: `技术评分大类提取失败，已切换到 Agent 直接生成评分大类和目录：${getErrorMessage(error)}`,
       startProgress: 24,
@@ -2957,7 +2958,7 @@ export async function alignedWorkflow(aiService: OutlineAiService, agentService:
       groups,
       finalReview,
       workflowKind: 'technical-plan',
-      outlineExpansionMode: (payload?.outlineExpansionMode as string) || 'ai-complement',
+      outlineExpansionMode: payload?.outlineExpansionMode === 'original-only' ? 'original-only' : 'ai-complement',
       recoveryReason: finalReview.suggestions.join('；'),
       startLogMessage: `评分项对齐目录生成失败，已切换到 Agent 补齐完整目录：${getErrorMessage(error)}`,
       startProgress: 82,

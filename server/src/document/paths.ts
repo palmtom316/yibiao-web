@@ -3,6 +3,7 @@
 // DB 列（tenderMarkdownPath/markdownPath/filePath/contentPath）存 **相对 workspace 的相对路径**，
 // 读时 join(workspaceDir, rel) 还原绝对路径——这样 dataDir 迁移不破坏数据。
 import path from 'node:path';
+import { resolveInside } from '../security/files';
 
 export function getDataDir(): string {
   return process.env.YIBIAO_DATA_DIR || path.resolve(process.cwd(), 'data');
@@ -121,7 +122,7 @@ export function getPersonnelCertFile(
 export function createKnowledgeBasePaths(dataDir: string = getDataDir()): KnowledgeBasePaths {
   const kbRoot = getSharedKnowledgeBaseDir(dataDir);
   const resolve = (relativePath: string): string =>
-    path.resolve(kbRoot, String(relativePath || ''));
+    resolveInside(kbRoot, String(relativePath || ''), false);
   const relativize = (absolutePath: string): string => path.relative(kbRoot, absolutePath);
   return {
     kbRoot,
@@ -163,7 +164,7 @@ export function createWorkspacePaths(userId: number, dataDir: string = getDataDi
   const knowledgeBaseDir = path.join(workspaceDir, 'knowledge-base');
 
   const resolve = (relativePath: string): string =>
-    path.resolve(workspaceDir, String(relativePath || ''));
+    resolveInside(workspaceDir, String(relativePath || ''), false);
   const relativize = (absolutePath: string): string => path.relative(workspaceDir, absolutePath);
 
   return {

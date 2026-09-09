@@ -1,4 +1,5 @@
 export interface OutlineItem {
+  manualLocked?: boolean;
   id: string;
   title: string;
   description: string;

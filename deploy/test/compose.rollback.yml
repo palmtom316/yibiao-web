@@ -1,0 +1,7 @@
+# Locally reconstructed previous security-fixed program; see P0-05 report.
+# Never build or pull a replacement implicitly during a rollback.
+services:
+  app:
+    image: yibiao-transform-app-rollback:previous
+    build: !reset null
+    pull_policy: never

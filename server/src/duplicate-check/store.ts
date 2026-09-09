@@ -85,6 +85,7 @@ function normalizeFile(file: unknown): { id: string; file_name: string; file_pat
   const fileId = stableFileId(f as never);
   const fileName = String(f.file_name || '').trim();
   const filePath = String(f.file_path || '').trim();
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(fileId) || !/^duplicate-check\/sources\/[a-zA-Z0-9_.-]+$/.test(filePath)) throw new Error('文件必须通过当前项目上传入口选择');
   if (!fileId || !fileName || !filePath) return null;
   return {
     id: fileId,

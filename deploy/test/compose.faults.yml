@@ -1,0 +1,15 @@
+services:
+  fixture-model:
+    image: node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+    user: node
+    init: true
+    read_only: true
+    environment: {YIBIAO_TEST_SCOPE: yibiao-transform}
+    command: [node, /fixture/model.mjs]
+    volumes: ["./server/src/verification/fixture-model.mjs:/fixture/model.mjs:ro"]
+    networks: [backend, frontend]
+    ports: ["127.0.0.1:55439:8800"]
+    mem_limit: 128m
+  app:
+    environment:
+      YIBIAO_INTERNAL_ENDPOINTS: http://fixture-model:8800/v1

@@ -1,4 +1,5 @@
 import {
+  BUILD_COMMIT,
   LICENSE_NAME,
   LICENSE_URL,
   MODIFICATION_AUTHOR,
@@ -26,6 +27,7 @@ export default function OpenSourceNotice({ variant = 'app' }: OpenSourceNoticePr
         <ExternalLink href={SOURCE_REPOSITORY_URL}>获取当前版本源码</ExternalLink>
         <span aria-hidden="true"> · </span>
         <ExternalLink href={LICENSE_URL}>{LICENSE_NAME}</ExternalLink>
+        <span aria-hidden="true"> · </span><span>版本 {BUILD_COMMIT.slice(0, 16)}</span>
       </span>
       <span>
         基于 <ExternalLink href={UPSTREAM_REPOSITORY_URL}>OpenBidKit_Yibiao</ExternalLink> 修改，

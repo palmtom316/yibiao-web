@@ -50,3 +50,12 @@ The attribution information in this NOTICE file is a required author
 attribution notice under Section 7(b) of the GNU Affero General Public
 License v3.0 and must be preserved in redistributed copies, modified
 versions, and corresponding source code.
+
+Web modification notice (2026-09-08)
+
+Web adaptation: jdcome.
+Transformation maintenance for palmtom316/yibiao-web: palmtom316.
+This version adds Docker delivery, scoped processing, immutable document and
+reference versions, business responses and Web adaptations of pinned upstream
+algorithms. Original author and license notices above remain applicable.
+Source repository: https://github.com/palmtom316/yibiao-web

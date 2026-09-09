@@ -649,7 +649,9 @@ export function normalizeConfig(config?: any): any {
     file_parser: {
       provider: fileParser.provider || defaultConfig.file_parser.provider,
       mineru_token: fileParser.mineru_token || defaultConfig.file_parser.mineru_token,
+      mineru_base_url: typeof fileParser.mineru_base_url === 'string' ? fileParser.mineru_base_url : 'https://mineru.net',
     },
+    allow_external_processing_shared: source.allow_external_processing_shared === true,
     update_channel: normalizeUpdateChannel(source.update_channel),
     gpu_hardware_acceleration_enabled: gpuHardwareAccelerationEnabled,
     gpu_hardware_acceleration_configured: gpuHardwareAccelerationConfigured === false ? true : gpuHardwareAccelerationConfigured,

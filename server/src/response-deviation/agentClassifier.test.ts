@@ -39,9 +39,9 @@ test('歧义候选通过一次受约束 Pi 调用返回分类', async () => {
 
   assert.equal(result.degraded, false);
   assert.equal(result.decisions[0].candidateId, 'candidate-1');
-  assert.equal((payload?.project_id as number), 10);
-  assert.ok(payload?.json_validation_schemas);
-  assert.equal(Array.isArray(payload?.files), true);
+  assert.equal(((payload as Record<string, unknown> | null)?.project_id as number), 10);
+  assert.ok((payload as Record<string, unknown> | null)?.json_validation_schemas);
+  assert.equal(Array.isArray((payload as Record<string, unknown> | null)?.files), true);
 });
 
 test('Pi 返回不存在的候选 ID 时安全降级并要求人工复核', async () => {

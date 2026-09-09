@@ -143,7 +143,7 @@ export interface DuplicateFile {
   modified_at: string;
 }
 
-export function getTenderFilesFromPayload(payload: { tenderFiles?: unknown[]; tenderFile?: unknown } = {}): unknown[] {
+export function getTenderFilesFromPayload(payload: { tenderFiles?: unknown; tenderFile?: unknown } = {}): unknown[] {
   return Array.isArray(payload.tenderFiles) ? payload.tenderFiles : [payload.tenderFile].filter(Boolean);
 }
 
@@ -1317,7 +1317,7 @@ function parseCatalogLine(line: string): (OutlineMarker & { source?: string; con
   if (marker) return marker;
   if (!hasPageTrail) return null;
   const title = cleanOutlineTitle(raw.replace(/(?:\.{2,}|…{2,}|·{2,}|\s{3,})\s*\d+\s*$/g, '').replace(/\s+\d{1,4}\s*$/g, ''));
-  return title && normalizeOutlineTitle(title).length >= 2 ? { title, level: 1 } : null;
+  return title && normalizeOutlineTitle(title).length >= 2 ? { number: '', title, level: 1 } : null;
 }
 
 function extractCatalogOutline(markdown: unknown) {
@@ -1625,9 +1625,9 @@ function addContentTextBlock(blocks: string[], value: unknown): void {
   }
 }
 
-function extractHtmlCellTextBlocks($: ReturnType<typeof cheerio.load>, cell: unknown): string[] {
+function extractHtmlCellTextBlocks($: ReturnType<typeof cheerio.load>, cell: Parameters<cheerio.CheerioAPI>[0]): string[] {
   const blocks: string[] = [];
-  const node = ($(cell) as ReturnType<typeof cheerio.load>).clone();
+  const node = $(cell).clone();
   node.find('img').remove();
   node.find('br').replaceWith('\n');
 
@@ -1644,7 +1644,7 @@ function extractHtmlCellTextBlocks($: ReturnType<typeof cheerio.load>, cell: unk
 }
 
 function extractHtmlTableTextBlocks(tableHtml: string): string[] {
-  const $ = cheerio.load(tableHtml, { decodeEntities: false });
+  const $ = cheerio.load(tableHtml);
   const blocks: string[] = [];
   $('tr').each((_, row) => {
     $(row).children('th, td').each((__, cell) => {
@@ -1828,14 +1828,16 @@ function splitContentBlockSentences(block: string): string[] {
 
   const parts: string[] = [];
   let start = 0;
+  let currentLength = 0;
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
-    const currentLength = text.slice(start, index + 1).replace(/\s+/g, '').length;
+    if (!/\s/.test(char)) currentLength += 1;
     const strongBoundary = /[。！？!?]/.test(char);
     const clauseBoundary = /[；;]/.test(char) && currentLength >= 20;
     if (strongBoundary || clauseBoundary) {
       parts.push(text.slice(start, index + 1));
       start = index + 1;
+      currentLength = 0;
     }
   }
   if (start < text.length) parts.push(text.slice(start));
@@ -2012,8 +2014,8 @@ function isSafeTenderFieldTail(value: unknown): boolean {
   return tail.length <= 36 && /(天津港保税区消防救援支队|消防装备管理系统项目|天津众信招标咨询有限公司)/.test(tail);
 }
 
-function charBigrams(value: unknown): Set<string> {
-  const text = buildTenderLooseText(value);
+function charBigramsFromLooseText(value: unknown): Set<string> {
+  const text = String(value || '');
   if (!text) return new Set();
   if (text.length === 1) return new Set([text]);
   const grams = new Set<string>();
@@ -2025,9 +2027,8 @@ function diceSimilarityFromShared(shared: number, leftSize: number, rightSize: n
   return (2 * shared) / Math.max(leftSize + rightSize, 1);
 }
 
-function shouldApplyNearTenderMatch(value: unknown): boolean {
-  const text = buildTenderLooseText(value);
-  if (text.length >= 12) return true;
+function shouldApplyNearTenderMatch(value: unknown, looseText: string): boolean {
+  if (looseText.length >= 12) return true;
   return /(评分|评标|页码|投标日期|日期|技术要求|招标要求)/.test(normalizeTenderComparableText(value));
 }
 
@@ -2049,13 +2050,14 @@ export function buildTenderSourceMatcher(tenderSentences: ContentSentence[]): Te
     const normalized = sentence?.normalized || normalizeContentSentence(source);
     const strictKey = buildTenderStrictKey(normalized);
     const skeletonKey = buildTenderSkeletonKey(normalized);
-    const grams = charBigrams(normalized);
+    const looseText = buildTenderLooseText(normalized);
+    const grams = charBigramsFromLooseText(looseText);
     if (normalized) exactSet.add(normalized);
     if (strictKey && strictKey.length >= 3) strictSet.add(strictKey);
     if (isTenderSkeletonAllowed(normalized, skeletonKey)) skeletonSet.add(skeletonKey);
     const parsedField = parseTenderFormatField(normalized);
     if (parsedField && isTenderFieldAllowed(parsedField.field)) fieldSet.add(parsedField.field);
-    const entry = { normalized, strictKey, skeletonKey, looseText: buildTenderLooseText(normalized), grams };
+    const entry = { normalized, strictKey, skeletonKey, looseText, grams };
     const entryIndex = entries.length;
     entries.push(entry);
     for (const gram of grams) {
@@ -2065,18 +2067,27 @@ export function buildTenderSourceMatcher(tenderSentences: ContentSentence[]): Te
     }
   }
 
+  const candidateCounts = new Uint32Array(entries.length);
+
   function matchNear(sentence: { normalized?: string }): { reason: string; dice: number; containment: number; tender?: string } | null {
     const normalized = String(sentence?.normalized || '');
-    if (!shouldApplyNearTenderMatch(normalized)) return null;
-    const grams = charBigrams(normalized);
+    const looseText = buildTenderLooseText(normalized);
+    if (!shouldApplyNearTenderMatch(normalized, looseText)) return null;
+    const grams = charBigramsFromLooseText(looseText);
     if (grams.size < 4) return null;
-    const candidates = new Map<number, number>();
+    const candidates: number[] = [];
     for (const gram of grams) {
-      for (const index of gramIndex.get(gram) || []) candidates.set(index, (candidates.get(index) || 0) + 1);
+      for (const index of gramIndex.get(gram) || []) {
+        if (!candidateCounts[index]) candidates.push(index);
+        candidateCounts[index] += 1;
+      }
     }
 
     let best: { reason: string; dice: number; containment: number; tender?: string } | null = null;
-    for (const [index, shared] of candidates.entries()) {
+    const compactLength = looseText.length;
+    for (const index of candidates) {
+      const shared = candidateCounts[index];
+      candidateCounts[index] = 0;
       const entry = entries[index];
       if (!entry?.grams?.size) continue;
       const shorter = Math.min(grams.size, entry.grams.size);
@@ -2084,7 +2095,6 @@ export function buildTenderSourceMatcher(tenderSentences: ContentSentence[]): Te
       const containment = shared / Math.max(shorter, 1);
       const dice = diceSimilarityFromShared(shared, grams.size, entry.grams.size);
       const lengthRatio = shorter / Math.max(longer, 1);
-      const compactLength = buildTenderLooseText(normalized).length;
       const allowed = compactLength >= 30
         ? containment >= 0.9 && dice >= 0.82 && lengthRatio >= 0.5
         : containment >= 0.95 && dice >= 0.88 && lengthRatio >= 0.55;
@@ -2108,7 +2118,7 @@ export function buildTenderSourceMatcher(tenderSentences: ContentSentence[]): Te
       }
       const skeletonKey = buildTenderSkeletonKey(normalized);
       if (isTenderSkeletonAllowed(normalized, skeletonKey) && skeletonSet.has(skeletonKey)) return { reason: 'skeleton' };
-      return matchNear(sentence);
+      return sentence ? matchNear(sentence) : null;
     },
   };
 }
@@ -2219,13 +2229,7 @@ export async function readImageTargetBuffer(target: unknown): Promise<Buffer | n
   if (!value) return null;
   const dataMatch = value.match(/^data:image\/[^;]+;base64,(?<data>[A-Za-z0-9+/=\s]+)$/i);
   if (dataMatch?.groups?.data) return Buffer.from(dataMatch.groups.data.replace(/\s+/g, ''), 'base64');
-  if (/^file:\/\//i.test(value)) {
-    try {
-      return await fs.readFile(new URL(value));
-    } catch {
-      return null;
-    }
-  }
+
   return null;
 }
 

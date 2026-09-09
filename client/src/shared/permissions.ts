@@ -39,6 +39,8 @@ const SECTION_TO_MODULE: Partial<Record<SectionId, SectionId>> = {
   'tool-asset-library': 'knowledge-base',
   'company-qualification-library': 'knowledge-base',
   'personnel-qualification-library': 'knowledge-base',
+  'performance-records': 'knowledge-base',
+  'business-bid': 'knowledge-base',
   // 标书检查
   'duplicate-check': 'bid-check',
   'rejection-check': 'bid-check',

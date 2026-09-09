@@ -1,3 +1,4 @@
+import IllustrationPanel from '../components/IllustrationPanel';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Popover from '@radix-ui/react-popover';
 import * as Switch from '@radix-ui/react-switch';
@@ -1044,6 +1045,7 @@ function ContentEditPage({
 
   return (
     <div className={`plan-step-body content-generation-page${showIllustrationStats ? ' has-dev-stats' : ''}`}>
+      <IllustrationPanel outlineData={outlineData} />
       <section className="content-generation-command-bar">
         <div>
           <span className="section-kicker">STEP 05</span>

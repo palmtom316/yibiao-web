@@ -10,7 +10,7 @@ export const appMenuItems: AppMenuItem[] = [
   {
     id: 'bid-generation',
     label: '标书生成',
-    description: '技术方案、投标计算器与响应偏离表编制',
+    description: '技术方案、商务响应与偏离表编制',
     children: [
       {
         id: 'technical-plan',
@@ -26,10 +26,9 @@ export const appMenuItems: AppMenuItem[] = [
       },
       {
         id: 'business-bid',
-        label: '投标计算器',
-        description: '综合报价、技术、商务评分标准计算标书最终得分',
+        label: '商务响应',
+        description: '逐项核验资质、业绩和人员，形成响应清单与原件包',
         icon: 'briefcase',
-        notice: { message: '正在开发中，敬请期待。' },
       },
       {
         id: 'response-deviation-table',
@@ -60,7 +59,7 @@ export const appMenuItems: AppMenuItem[] = [
   },
   {
     id: 'knowledge-base',
-    label: '知识库',
+    label: '资料库',
     description: '素材、模板和资质',
     children: [
       {
@@ -81,6 +80,7 @@ export const appMenuItems: AppMenuItem[] = [
         description: '公司资质证书、认证证书，支持到期提醒',
         icon: 'shield',
       },
+      { id: 'performance-records', label: '业绩档案', description: '关联项目叙述、公司原件与团队岗位', icon: 'briefcase' },
       {
         id: 'personnel-qualification-library',
         label: '人员资质库',

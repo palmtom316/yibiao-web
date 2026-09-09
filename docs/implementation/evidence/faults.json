@@ -1,0 +1,15 @@
+{
+  "projects": [
+    7,
+    8
+  ],
+  "transport": "synthetic-local-model",
+  "disconnectedTaskContinued": true,
+  "parallelProjects": true,
+  "sigtermMs": 550,
+  "sigkillMs": 337,
+  "recreateMs": 10104,
+  "contentAfterRestart": "paused",
+  "otherProjectUnaffected": true,
+  "wordAfterRecreate": "passed"
+}

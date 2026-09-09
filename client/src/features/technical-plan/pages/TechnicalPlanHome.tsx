@@ -339,13 +339,16 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
 
   useEffect(() => {
     let cancelled = false;
-    getPendingAgentQuestion()
+    const refreshQuestion = () => getPendingAgentQuestion()
       .then((question) => {
         if (!cancelled) setAgentQuestion(question);
       })
       .catch(() => {
         if (!cancelled) setAgentQuestion(null);
       });
+    void refreshQuestion();
+    const onReconnect = () => { void refreshQuestion(); };
+    window.addEventListener('yibiao:sse-reconnected', onReconnect);
     const unsubscribe = sseManager.subscribe('agent-question', (data) => {
       if (!data || typeof data !== 'object' || !('question_id' in data)) {
         setAgentQuestion(null);
@@ -355,18 +358,20 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     });
     return () => {
       cancelled = true;
+      window.removeEventListener('yibiao:sse-reconnected', onReconnect);
       unsubscribe();
     };
   }, [projectId]);
 
-  const submitAgentQuestionAnswer = useCallback(async (optionId: string) => {
+  const submitAgentQuestionAnswer = useCallback(async (optionId: string, customAnswer?: string, answerPayload?: unknown) => {
     if (!agentQuestion || !optionId) return;
     setAnsweringAgentQuestion(true);
     try {
-      await answerAgentQuestion({ question_id: agentQuestion.question_id, option_id: optionId });
+      await answerAgentQuestion({ question_id: agentQuestion.question_id, option_id: optionId, custom_answer: customAnswer, answer_payload: answerPayload });
       setAgentQuestion(null);
       showToast('已提交选择，后台任务将继续执行', 'success');
     } catch (error) {
+      void getPendingAgentQuestion().then(setAgentQuestion).catch(() => undefined);
       showToast(error instanceof Error ? error.message : '提交选择失败', 'error');
     } finally {
       setAnsweringAgentQuestion(false);
@@ -375,8 +380,8 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
 
   const deferAgentQuestion = useCallback(() => {
     if (!agentQuestion) return;
-    const deferOption = agentQuestion.options.find((option) => option.id === 'defer' || /稍后|暂停|处理/.test(option.label || ''));
-    const optionId = deferOption?.id || deferOption?.label || agentQuestion.options[0]?.id || '';
+    const deferOption = agentQuestion.options.find((option) => option.id === 'defer');
+    const optionId = deferOption?.id || '';
     if (optionId) {
       void submitAgentQuestionAnswer(optionId);
     }
@@ -1350,7 +1355,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
       <AgentQuestionDialog
         question={agentQuestion}
         submitting={answeringAgentQuestion}
-        onSubmit={(optionId) => { void submitAgentQuestionAnswer(optionId); }}
+        onSubmit={(optionId, customAnswer, answerPayload) => { void submitAgentQuestionAnswer(optionId, customAnswer, answerPayload); }}
         onDefer={deferAgentQuestion}
       />
 

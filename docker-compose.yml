@@ -1,0 +1,71 @@
+name: yibiao-web
+services:
+  postgres:
+    image: postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
+    environment:
+      POSTGRES_USER: yibiao
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: yibiao_web
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U yibiao -d yibiao_web]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    networks: [backend]
+    mem_limit: 2g
+  migrate:
+    build: {context: ., target: migrate}
+    environment: &app-environment
+      DATABASE_URL: postgresql://yibiao:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/yibiao_web
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET to at least 32 random characters}
+      YIBIAO_DATA_DIR: /data
+      YIBIAO_INTERNAL_ENDPOINTS: ${YIBIAO_INTERNAL_ENDPOINTS:-}
+      YIBIAO_EXTERNAL_ENDPOINTS: ${YIBIAO_EXTERNAL_ENDPOINTS:-}
+      YIBIAO_PUBLIC_ORIGIN: ${YIBIAO_PUBLIC_ORIGIN:-https://localhost}
+      YIBIAO_OUTLINE_V2: ${YIBIAO_OUTLINE_V2:-true}
+    volumes: [appdata:/data]
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: 'no'
+    networks: [backend]
+  app:
+    build:
+      context: .
+      target: app
+      args: {BUILD_COMMIT: '${BUILD_COMMIT:-development}'}
+    environment: *app-environment
+    volumes: [appdata:/data]
+    read_only: true
+    tmpfs: ['/tmp:size=1g,mode=1777']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 45s
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    restart: unless-stopped
+    networks: [backend, egress]
+    mem_limit: 4g
+    cpus: 3
+  nginx:
+    build:
+      context: .
+      target: nginx
+      args:
+        VITE_SOURCE_REPOSITORY_URL: ${VITE_SOURCE_REPOSITORY_URL:-https://github.com/palmtom316/yibiao-web}
+        VITE_BUILD_COMMIT: ${BUILD_COMMIT:-development}
+    ports: ['443:443']
+    volumes: ['${TLS_CERT_DIR:-./deploy/certs}:/etc/nginx/certs:ro']
+    depends_on:
+      app: {condition: service_healthy}
+    restart: unless-stopped
+    networks: [backend, frontend]
+    mem_limit: 256m
+volumes:
+  pgdata:
+  appdata:
+networks:
+  backend: {internal: true}
+  frontend: {}
+  egress: {}

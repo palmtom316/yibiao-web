@@ -1,3 +1,7 @@
+import { parseModules } from '../auth/permissions';
+import type { ServerResponse } from 'node:http';
+const streams = new Set<ServerResponse>();
+export function closeEventStreams(): void { for (const stream of streams) stream.end(); streams.clear(); }
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { getUser } from '../auth/middleware';
@@ -25,7 +29,7 @@ export async function eventRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
     const user = getUser(req);
     const query = (req.query as { projectId?: string } | undefined) || {};
     const projectIdNum = Number(query.projectId);
-    if (!Number.isFinite(projectIdNum) || projectIdNum <= 0) {
+    if (!Number.isSafeInteger(projectIdNum) || projectIdNum <= 0) {
       return reply.code(400).send({ error: '缺少有效的 projectId 查询参数' });
     }
     const project = await prisma.project.findUnique({ where: { id: projectIdNum } });
@@ -44,13 +48,25 @@ export async function eventRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
 
     const origin = req.headers.origin || '';
     const raw = reply.raw;
+    streams.add(raw);
+    const allowedOrigin = process.env.NODE_ENV === 'production' ? process.env.YIBIAO_PUBLIC_ORIGIN : origin;
+    async function currentAccess(channel?: string, data?: any): Promise<'allow' | 'hide' | 'close'> {
+      const [account, currentProject] = await Promise.all([prisma.user.findUnique({ where: { id: user.id } }), prisma.project.findUnique({ where: { id: projectIdNum } })]);
+      if (!account || account.status !== 'active' || account.mustChangePassword || !currentProject || (currentProject.ownerId !== account.id && account.role !== 'admin')) return 'close';
+      const modules = parseModules(account.modules);
+      if (account.role !== 'admin') {
+        if ((channel === 'kb-document' || (channel === 'jobs' && String(data?.kind || '').startsWith('business-'))) && !modules.includes('knowledge-base')) return 'hide';
+        if (channel === 'tasks' && (data?.duplicateCheck || data?.rejectionCheck || ['duplicate-analysis', 'rejection-check-run', 'rejection-items-extraction'].includes(data?.task?.type)) && !modules.includes('bid-check')) return 'hide';
+      }
+      return 'allow';
+    }
     raw.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
       // 与 @fastify/cors 配置一致：origin:true + credentials:true → 反射请求 Origin。
-      'Access-Control-Allow-Origin': origin || '*',
+      'Access-Control-Allow-Origin': allowedOrigin || 'null',
       'Access-Control-Allow-Credentials': 'true',
       Vary: 'Origin',
     });
@@ -58,9 +74,10 @@ export async function eventRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
     raw.write(': connected\n\n');
 
     // 心跳：25s 一次注释行。
-    const heartbeat = setInterval(() => {
+    const heartbeat = setInterval(async () => {
       if (raw.destroyed || raw.writableEnded) return;
       try {
+        if (await currentAccess() === 'close') { raw.end(); return; }
         raw.write(`: ping ${Date.now()}\n\n`);
       } catch {
         /* 写失败（客户端已断）由 close 事件清理 */
@@ -68,7 +85,12 @@ export async function eventRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
     }, 25000);
 
     // 订阅总线：每条事件写一帧 SSE（id / event / data）。
+    let eventChain = Promise.resolve();
     const unsubscribe = eventBus.subscribe(projectId, (event) => {
+      eventChain = eventChain.then(async () => {
+      const access = await currentAccess(event.channel, event.data);
+      if (access === 'close') { raw.end(); return; }
+      if (access === 'hide') return;
       if (raw.destroyed || raw.writableEnded) return;
       const payload = JSON.stringify(event.data);
       const frame = `id: ${event.id}\nevent: ${event.channel}\ndata: ${payload}\n\n`;
@@ -77,9 +99,11 @@ export async function eventRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
       } catch {
         /* 忽略，由 close 清理 */
       }
+      }).catch(() => { raw.end(); });
     });
 
-    req.raw.on('close', () => {
+    raw.on('close', () => {
+      streams.delete(raw);
       clearInterval(heartbeat);
       unsubscribe();
     });

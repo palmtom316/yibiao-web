@@ -1,3 +1,4 @@
+import { parseQueue } from '../resources/queue';
 // 本地文档解析层（移植自 client/electron/services/fileService.cjs 的本地路径）。
 // P4 范围：仅本地解析器（convert.mjs），preserveImages 恒 false（图片一律剥离）。
 // 不含 MinerU（SaaS OCR，留待按需接入）、不含图片持久化（仅 duplicate-check P6 分析时需要）。
@@ -38,6 +39,12 @@ export function isLocallySupported(filePath: string): boolean {
 }
 
 export interface ParseDocumentResult {
+  sourceId?: string;
+  sourceHash?: string;
+  parseVersion?: number;
+  sourceUnavailable?: boolean;
+  warnings?: string[];
+  assets?: Array<{ assetId: string; sha256: string; mimeType: string; size: number }>;
   markdown: string;
   parserLabel: string;
   chars: number;
@@ -57,7 +64,7 @@ async function computeHashAndChars(markdown: string): Promise<{ hash: string; ch
   return { hash, chars };
 }
 
-export async function parseDocument(filePath: string): Promise<ParseDocumentResult> {
+async function parseDocumentImpl(filePath: string): Promise<ParseDocumentResult> {
   const ext = path.extname(filePath).toLowerCase();
   if (!LOCAL_SUPPORTED_SET.has(ext)) {
     const err = new Error(`本地解析不支持该文件格式（${ext || '无扩展名'}），支持：${LOCAL_SUPPORTED_EXTENSIONS.join(' ')}`);
@@ -83,3 +90,7 @@ export async function parseDocument(filePath: string): Promise<ParseDocumentResu
 }
 
 export { isLibreOfficeMissingError, isLegacyOfficeFile };
+
+export function parseDocument(...args: Parameters<typeof parseDocumentImpl>): ReturnType<typeof parseDocumentImpl> {
+  return parseQueue.run(() => parseDocumentImpl(...args));
+}

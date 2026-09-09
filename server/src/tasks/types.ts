@@ -111,6 +111,7 @@ export interface DesktopAiService {
 }
 
 export interface TaskRunnerContext {
+  userId?: number;
   projectId: number;
   prisma: PrismaClient; // 提示词管理：runner 加载 DB 驱动的 prompt 目录（兜底硬编码）
   aiService: DesktopAiService;

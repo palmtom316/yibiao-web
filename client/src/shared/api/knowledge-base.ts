@@ -1,3 +1,4 @@
+import { awaitJobResult } from './jobs';
 // 知识库命名空间的 Web 实现：window.yibiao.knowledgeBase.* 的底层。
 // 公司共享（无 userId 过滤，服务端按 JWT 鉴权但不隔离）。DTO 全 snake_case，
 // 与桌面 knowledge-base/types.ts 一致（不像 technical_plan 的混合大小写）。
@@ -14,6 +15,8 @@ export interface KnowledgeFolderDto {
 }
 
 export interface KnowledgeDocumentDto {
+  version?: number;
+  archivedAt?: string | null;
   id: string;
   folder_id: string;
   file_name: string;
@@ -81,8 +84,8 @@ export const knowledgeBaseApi = {
   deleteFolder(folderId: string): Promise<KnowledgeBaseMutationResult> {
     return http.delete<KnowledgeBaseMutationResult>(`/knowledge-base/folders/${encodeURIComponent(folderId)}`).then((r) => r.data);
   },
-  deleteDocument(documentId: string): Promise<KnowledgeBaseMutationResult> {
-    return http.delete<KnowledgeBaseMutationResult>(`/knowledge-base/documents/${encodeURIComponent(documentId)}`).then((r) => r.data);
+  deleteDocument(documentId: string, version?: number): Promise<KnowledgeBaseMutationResult> {
+    return http.delete<KnowledgeBaseMutationResult>(`/knowledge-base/documents/${encodeURIComponent(documentId)}`, { params: { version } }).then((r) => r.data);
   },
   moveDocument(
     documentId: string,
@@ -126,7 +129,7 @@ export const knowledgeBaseApi = {
   retryDocument(documentId: string): Promise<KnowledgeBaseRetryDocumentResult> {
     return http
       .post<KnowledgeBaseRetryDocumentResult>(`/knowledge-base/documents/${encodeURIComponent(documentId)}/retry`)
-      .then((r) => r.data);
+      .then((r) => awaitJobResult<KnowledgeBaseRetryDocumentResult>(r.data));
   },
   startMatching(documentId: string, batchSize: number): Promise<KnowledgeBaseRetryDocumentResult> {
     return http

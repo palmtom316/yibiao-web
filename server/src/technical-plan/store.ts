@@ -1,3 +1,4 @@
+import { validateReferenceBlocks, confirmedReferenceFacts } from '../business-bid/technical';
 // 技术方案状态持久化（按用户隔离）。忠实移植自 client/electron/services/technicalPlanStore.cjs
 // 的**纯状态部分**（loadTechnicalPlan 装配 + 12 个写入方法）。
 // better-sqlite3 同步 → Prisma 异步；snake_case 行 → 混合大小写 DTO（顶层标量 camelCase，
@@ -77,6 +78,7 @@ export interface ContentGenerationPlanState {
 }
 
 export interface OutlineItem {
+  manualLocked?: boolean;
   id: string;
   title: string;
   description?: string;
@@ -101,6 +103,7 @@ export interface OutlineData {
 }
 
 export interface TechnicalPlanState {
+  templateExtraction?: unknown;
   workflowKind: string;
   step: string;
   tenderFile: Record<string, unknown> | null;
@@ -462,6 +465,7 @@ function flattenOutlineItems(items: OutlineItem[] | undefined, parentNodeId: str
       is_mirror: item?.isMirror === true,
       mirror_source_text: item?.mirrorSourceText ? String(item.mirrorSourceText) : null,
       outline_attribute: normalizeOutlineAttribute(item?.outlineAttribute),
+      manual_locked: item?.manualLocked === true,
       content_mode: normalizeOutlineContentMode(item?.contentMode),
       content_mode_note: item?.contentModeNote ? String(item.contentModeNote) : null,
     });
@@ -621,7 +625,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
     return acc;
   }
 
-  async function loadOutlineData(projectId: number, meta: { outlineProjectName: string | null; outlineProjectOverview: string | null }, client: Db = prisma): Promise<OutlineData | null> {
+  async function loadOutlineData(projectId: number, meta: { outlineProjectName: string | null; outlineProjectOverview: string | null; outlineWordControlOptionsJson?: unknown; outlineWordControlSnapshotJson?: unknown }, client: Db = prisma): Promise<OutlineData | null> {
     const rows = await client.technicalPlanOutlineNode.findMany({
       where: { projectId },
       orderBy: [{ level: 'asc' }, { parentNodeId: 'asc' }, { sortOrder: 'asc' }],
@@ -640,6 +644,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
         isMirror: row.isMirror === true,
         mirrorSourceText: row.mirrorSourceText || undefined,
         outlineAttribute: normalizeOutlineAttribute(row.outlineAttribute),
+        manualLocked: row.manualLocked,
         contentMode: normalizeOutlineContentMode(row.contentMode),
         contentModeNote: row.contentModeNote || undefined,
         children: [],
@@ -748,6 +753,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
       return sourceFiles
         .map((file) => ({
           id: String(file?.id || ''),
+          sourceId: file?.sourceId, sourceHash: file?.sourceHash, parseVersion: file?.parseVersion, sourceUnavailable: !file?.sourceId, warnings: file?.warnings || [], assets: file?.assets || [],
           fileName: String(file?.fileName || '招标文件'),
           markdownPath: String(file?.markdownPath || ''),
           markdownChars: Number(file?.markdownChars || 0),
@@ -761,7 +767,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
     if (meta.tenderMarkdownPath) {
       return [
         {
-          id: 'tender-legacy-01',
+          id: 'tender-legacy-01', sourceUnavailable: true,
           fileName: meta.tenderFileName || '技术方案招标文件',
           markdownPath: meta.tenderMarkdownPath,
           markdownChars: Number(meta.tenderMarkdownChars || 0),
@@ -805,6 +811,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
     const originalPlanFile = meta.originalPlanMarkdownPath
       ? {
           fileName: meta.originalPlanFileName || '原方案',
+          sourceId: meta.originalPlanSourceId, sourceUnavailable: !meta.originalPlanSourceId,
           markdownPath: meta.originalPlanMarkdownPath,
           markdownChars: Number(meta.originalPlanMarkdownChars || 0),
           contentHash: meta.originalPlanMarkdownHash || '',
@@ -821,6 +828,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
       tenderFile,
       tenderFiles,
       originalPlanFile,
+      templateExtraction: meta.templateExtractionJson,
       projectOverview: bidAnalysisTasks.projectOverview?.status === 'success' ? bidAnalysisTasks.projectOverview.content : '',
       techRequirements: bidAnalysisTasks.techRequirements?.status === 'success' ? bidAnalysisTasks.techRequirements.content : '',
       bidAnalysisMode,
@@ -976,7 +984,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
   }
 
   async function replaceGlobalFacts(projectId: number, groups: unknown, client: Db): Promise<void> {
-    const normalized = normalizeGlobalFactGroups(groups);
+    const normalized: GlobalFactGroupState[] = [...normalizeGlobalFactGroups(groups).filter((group) => !group.id.startsWith('confirmed_reference_')), ...await confirmedReferenceFacts(client, projectId)];
     await client.technicalPlanGlobalFactGroup.deleteMany({ where: { projectId } });
     if (!normalized.length) return;
     const ts = now();
@@ -998,12 +1006,14 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
 
   async function saveOutlineData(projectId: number, outlineData: OutlineData | null | undefined, client: Db): Promise<void> {
     if (!outlineData?.outline?.length) {
+      await client.chapterReference.updateMany({ where: { projectId, active: true }, data: { active: false, locked: false } });
       await client.technicalPlanOutlineNode.deleteMany({ where: { projectId } });
       await client.technicalPlanContentSection.deleteMany({ where: { projectId } });
       await client.technicalPlanContentPlan.deleteMany({ where: { projectId } });
       await updateMeta(projectId, { outlineProjectName: null, outlineProjectOverview: null }, client);
       return;
     }
+    const protectedNodes = new Map((await client.technicalPlanOutlineNode.findMany({ where: { projectId, manualLocked: true } })).map((node) => [node.nodeId, node]));
     const rows = flattenOutlineItems(outlineData.outline);
     const nextIds = new Set(rows.map((r) => r.node_id as string));
     const ts = now();
@@ -1025,7 +1035,8 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
           sourceRequirementId: (row.source_requirement_id as string | null) ?? null,
           sourceRequirementTitle: (row.source_requirement_title as string | null) ?? null,
           knowledgeItemIdsJson: Array.isArray(row.knowledge_item_ids) && (row.knowledge_item_ids as string[]).length ? (row.knowledge_item_ids as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
-          content: String(row.content ?? ''),
+          content: protectedNodes.get(String(row.node_id))?.content ?? String(row.content ?? ''),
+          manualLocked: protectedNodes.has(String(row.node_id)) || row.manual_locked === true,
           isMirror: row.is_mirror === true,
           mirrorSourceText: (row.mirror_source_text as string | null) ?? null,
           outlineAttribute: row.outline_attribute as string,
@@ -1181,6 +1192,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
   }
 
   async function clearDownstreamFromTender(projectId: number, client: Db): Promise<void> {
+    await client.chapterReference.updateMany({ where: { projectId, active: true }, data: { active: false, locked: false } });
     await client.technicalPlanTask.deleteMany({ where: { projectId } });
     await client.technicalPlanBidItem.deleteMany({ where: { projectId } });
     await client.technicalPlanReferenceDoc.deleteMany({ where: { projectId } });
@@ -1219,6 +1231,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
   }
 
   async function clearDownstreamFromBidSectionChange(projectId: number, client: Db): Promise<void> {
+    await client.chapterReference.updateMany({ where: { projectId, active: true }, data: { active: false, locked: false } });
     await client.technicalPlanTask.deleteMany({ where: { projectId } });
     await client.technicalPlanBidItem.deleteMany({ where: { projectId } });
     await client.technicalPlanReferenceDoc.deleteMany({ where: { projectId } });
@@ -1241,6 +1254,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
   }
 
   async function clearDownstreamFromOriginalPlan(projectId: number, client: Db): Promise<void> {
+    await client.chapterReference.updateMany({ where: { projectId, active: true }, data: { active: false, locked: false } });
     await client.technicalPlanTask.deleteMany({
       where: { projectId, type: { in: ['outline-generation', 'global-facts-generation', 'content-generation'] } },
     });
@@ -1277,6 +1291,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
         outlineExpansionMode: 'ai-complement',
         mirrorProcurementEnabled: true,
         originalPlanFileName: null,
+        originalPlanSourceId: null,
         originalPlanMarkdownPath: null,
         originalPlanMarkdownHash: null,
         originalPlanMarkdownChars: 0,
@@ -1483,16 +1498,19 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
     return updateTechnicalPlan(projectId, { contentGenerationOptions: options, contentIllustrationPlan: undefined });
   }
 
-  async function saveChapterContent(projectId: number, payload: { nodeId?: string; content?: unknown }): Promise<TechnicalPlanState> {
+  async function saveChapterContent(projectId: number, payload: { nodeId?: string; content?: unknown; expectedContent?: string }): Promise<TechnicalPlanState> {
     const { nodeId, content } = payload || {};
     if (!nodeId) throw new Error('缺少章节 nodeId');
     await prisma.$transaction(async (tx) => {
       await assertContentEditingAllowed(projectId, tx);
       const ts = now();
-      const node = await tx.technicalPlanOutlineNode.findFirst({ where: { projectId, nodeId }, select: { nodeId: true, title: true } });
+      const node = await tx.technicalPlanOutlineNode.findFirst({ where: { projectId, nodeId }, select: { nodeId: true, title: true, content: true } });
       if (!node) throw new Error('当前目录中未找到该章节');
+      if (payload.expectedContent !== undefined && node.content !== payload.expectedContent) throw new Error('正文已被编辑，请刷新后重试插图');
       const nextContent = String(content || '');
-      await tx.technicalPlanOutlineNode.updateMany({ where: { projectId, nodeId }, data: { content: nextContent, updatedAt: ts } });
+      await validateReferenceBlocks(tx, projectId, nodeId, nextContent);
+      const saved = await tx.technicalPlanOutlineNode.updateMany({ where: { projectId, nodeId, ...(payload.expectedContent !== undefined ? { content: payload.expectedContent } : {}) }, data: { content: nextContent, manualLocked: true, updatedAt: ts } });
+      if (!saved.count) throw new Error('正文已被编辑，请刷新后重试插图');
       await tx.technicalPlanContentSection.upsert({
         where: { projectId_nodeId: { projectId, nodeId } },
         create: { projectId, nodeId, status: nextContent.trim() ? 'success' : 'idle', error: null, updatedAt: ts },
@@ -1682,6 +1700,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
       tenderFilesJson.push({
         id,
         fileName: doc.fileName || '招标文件',
+        sourceId: doc.sourceId, sourceHash: doc.sourceHash, parseVersion: doc.parseVersion, warnings: doc.warnings || [], assets: doc.assets || [], sourceUnavailable: !doc.sourceId,
         markdownPath: relPath,
         markdownChars: markdown.length,
         contentHash: doc.hash || shortHash(markdown),
@@ -1744,6 +1763,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
         {
           workflowKind: 'existing-plan-expansion',
           originalPlanFileName: doc.fileName || '未命名文件',
+          originalPlanSourceId: doc.sourceId || null,
           originalPlanMarkdownPath: originalPlanRelativePath,
           originalPlanMarkdownHash: doc.hash || shortHash(markdown),
           originalPlanMarkdownChars: markdown.length,

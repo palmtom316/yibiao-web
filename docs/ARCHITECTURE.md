@@ -1,6 +1,6 @@
 # Web 架构
 
-改造方向、官方算法移植范围和公司资产库方案见 [Web 版改造计划](TRANSFORMATION-PLAN.md)。本文描述**当前**运行边界，不替代改造计划。
+本文描述当前改造分支的实现；验收状态见 [STATUS](implementation/STATUS.md)，产品约束见 [审核计划](TRANSFORMATION-PLAN.md)。尚未生产发布。
 
 ## 1. 组件
 
@@ -8,7 +8,8 @@
 - `server/`：Fastify 5 权威后端，负责鉴权、权限、文档解析、AI 请求、后台任务、导出和存储。
 - `server/prisma/schema.prisma`：PostgreSQL schema 单一真相。
 - Nginx：托管前端静态文件并反向代理 `/api` 和 SSE。
-- PM2：使用项目本地 `tsx` 运行 `server/src/index.ts`。
+- Docker Compose：单实例 app、一次性 migrate、nginx、PostgreSQL 16；非 root app 使用本地 tsx 运行源码。
+- PM2 保留为备选，必须单实例 fork，不能 cluster。
 
 ## 2. 请求与数据边界
 
@@ -33,14 +34,14 @@ Browser
 
 ## 4. 模块边界
 
-- 标书生成：技术方案、已有方案扩写、投标计算器入口、响应与偏离表工作台。
+- 标书生成：技术方案、已有方案扩写、商务响应清单、响应与偏离表工作台。
 - 格式管理：我的模板、新建模板、导出格式和共享模板。
-- 知识库：方案模板库、工具模板库、公司资质库、人员资质库。
+- 知识库：方案模板库、工具模板库、公司资质库、人员资质库及业绩档案。
 - 标书检查：标书查重和废标项检查。
 - 使用文档与 FAQ：数据库文章、Markdown 渲染、管理员编辑和用户反馈。
 - 管理模块：用户管理、提示词管理、基本设置。
 
-“投标计算器”是标书生成下的评分辅助入口，定位为汇总综合报价、技术评分和商务评分规则，辅助计算标书最终得分；当前仍保持开发中提示，不在架构上承诺完整评分引擎已经落地。
+商务响应使用独立要求/候选/人工结论/引用版本，技术目录只处理技术项。清单 Word 与原件 ZIP 不承担最终评分计算。
 
 ## 5. 数据范围
 
@@ -63,7 +64,7 @@ Browser
 - 静态 Markdown 原稿位于 `server/prisma/seed-docs/`。
 - 前端 `client/public/docs/` 保留同名静态文档和图片资源，便于 Markdown 图片路径稳定访问。
 - 数据库文章由 `server/prisma/seed-docs.ts` 写入 `docs_articles`。
-- seed 使用固定 id 幂等 upsert，刷新标题和正文，不覆盖管理员调整过的排序。
+- seed 按固定 ID 只创建缺失文章，保留管理员正文、标题与排序。内容升级使用单独版本化命令，先报告后按旧版本 hash 更新。
 
 ## 8. AI 与通用模型互通
 
@@ -71,7 +72,7 @@ AI 配置与真实密钥只存在服务端，浏览器端不保存 API Key。文
 
 部署方可以按安全策略选择三种互通方式：
 
-1. 连接公网通用大模型服务：服务端出网访问模型 API，适合快速启用，但需要确认招标文件、客户资料和生成内容是否允许发送给外部服务。
+1. 批准的外部服务：必须同时列入部署端点白名单、获得项目/共享域许可；默认拒绝，缺少数据域上下文也拒绝。
 2. 连接企业统一模型网关：通过内网或受控出口访问 OpenAI-compatible 网关，便于做审计、限流、密钥轮换和模型统一管理。
 3. 连接本地或私有化模型服务：将 Base URL 指向内网推理服务，数据流转范围更可控，但需要自行保障模型能力、上下文长度和并发性能。
 
@@ -87,3 +88,24 @@ Web 版以浏览器、HTTP API、SSE 进度推送、PostgreSQL 和服务端运�
 - 上传文件、导出结果、文档解析中间文件保存到服务端运行数据目录；
 - `.env`、数据库备份、上传目录、日志和客户文件由部署环境管理，不进入源码仓库；
 - Nginx 只暴露前端静态资源、`/api` 和必要的 SSE 路由，数据库与后端内部端口不应直接暴露到公网。
+
+
+## 10. 原件、引用和资源边界
+
+DocumentSource 保存原件身份与 hash；DocumentParseVersion 保存独立解析清单；DocumentAsset 绑定项目、知识文档或项目引用。文件只存相对路径，浏览器读取授权 ID；不接受客户端 base_dir、绝对路径、file URI、越界符号链接或任意远程图片。
+
+PerformanceRecord 与公司原件、知识文档/条目、人员岗位使用真实关联表和外键。金额 API 使用十进制字符串。证照时间按 Asia/Shanghai 业务日，截止日期当日仍有效。
+
+确认引用先建立 staging ProjectReferenceSnapshot，复制并核对原件/叙述图片，再锁定来源版本、校验权限并置 ready；失败标 error 且不发布半成品。快照来源 ID 是溯源值，不随源删除级联消失；复制出的图片绑定快照自己的资产 ID。ReferenceRevocation 独立保留撤销记录，新的导出读取历史快照时仍检查撤销。
+
+BusinessResponseRevision 固定要求和人工结论；BusinessPackage 在服务器流式打 ZIP，包含 Word、原件及 hash 清单。正文引用块采用确定性渲染，manualLocked 阻止重新生成覆盖人工章节。
+
+## 11. 后台工作与可选组件
+
+任务与事件依赖单进程。长解析/出包使用持久 BackgroundJob；解析、导出、Chromium 渲染各有有界队列。进程重启恢复任务状态，不声称所有模型调用都能续跑。
+
+目录 V2 重用固定上游纯算法/提示词，在 Web 端逐阶段 await PostgreSQL 检查点。Pi 持久工作区标识包含项目 ID 和运行 UUID，用户回答经项目权限校验。允许普通生成回退，`YIBIAO_OUTLINE_V2=false` 关闭 V2。模板扫描/字段确认使用独立作业，不把商务模板章节注入技术目录。
+
+增强镜像 self-contained .NET 10 helper 按 workspace + JSON 协议运行。Chromium 禁下载、外部网络和服务工作线程，模型 HTML 脚本禁用；仅运行受控 Mermaid 与 DOM 布局检查脚本。配图保存 HTML 图源、尝试次数和质检结果，随后发布项目图片资产；失败可以重试。
+
+ProcessingScope 通过 AsyncLocalStorage 及任务绑定配置传递，重试/排队保持各自作用域。读取共享知识会给当前项目任务标记 includesSharedData；外发必须同时满足项目和共享策略，撤销模块权限在下次请求即生效。

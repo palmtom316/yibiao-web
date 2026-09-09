@@ -1,3 +1,4 @@
+import { renderLocalDiagram } from '../illustrations/render';
 // docx 构造层（忠实移植自 client/electron/services/exportService.cjs 256-2111）。
 // 与桌面差异：
 //  - developerLogger → no-op stub（enabled=false，writeExportLog 全静默）。
@@ -34,6 +35,8 @@ import {
   VerticalAlignTable,
   WidthType,
   type ICommentsOptions,
+  type INumberingOptions,
+  type ILevelsOptions,
   type ParagraphChild,
 } from 'docx';
 import type { CheerioAPI } from 'cheerio';
@@ -97,6 +100,7 @@ interface NumberingReferenceConfig {
 }
 
 interface ExportContext {
+  assetResolver?: import('./images').ImageContext['assetResolver'];
   baseDir?: string;
   onProgress?: (p: BuildProgress) => void;
   warnings: string[];
@@ -121,12 +125,12 @@ interface ExportContext {
   bodyListStyle?: string;
   bodyOrderedListStyle?: string;
   bodyListIndentChars?: number;
-  bodyAlignment?: AlignmentType;
+  bodyAlignment?: (typeof AlignmentType)[keyof typeof AlignmentType];
   bodyIndent?: Record<string, number>;
   bodyBeforeSpacing?: number;
 }
 
-interface BuildProgress {
+export interface BuildProgress {
   phase: string;
   progress: number;
   message: string;
@@ -172,7 +176,7 @@ function reportProgress(context: ExportContext, progress: number, message: strin
 
 class ExportCommentRegistry {
   private nextId = 0;
-  private readonly comments: ICommentsOptions['children'] = [];
+  private readonly comments: Array<ICommentsOptions['children'][number]> = [];
 
   add(text: string): number {
     const id = this.nextId;
@@ -289,7 +293,7 @@ interface RunOptions {
 interface ParagraphOptions {
   heading?: (typeof HeadingLevel)[keyof typeof HeadingLevel];
   pageBreakBefore?: boolean;
-  alignment?: AlignmentType;
+  alignment?: (typeof AlignmentType)[keyof typeof AlignmentType];
   bullet?: { level: number };
   numbering?: { reference: string; level: number };
   before?: number;
@@ -584,7 +588,7 @@ function tableBorderSize(context: ExportContext): number {
   return Math.max(1, Math.round(width * 6));
 }
 
-function tableBorders(context: ExportContext): Record<string, { style: BorderStyle; size: number; color: string }> {
+function tableBorders(context: ExportContext): Record<string, { style: (typeof BorderStyle)[keyof typeof BorderStyle]; size: number; color: string }> {
   const size = tableBorderSize(context);
   const none = { style: BorderStyle.NIL, size: 0, color: 'FFFFFF' };
   if (size <= 0) {
@@ -608,7 +612,7 @@ function tableCellRunMarks(style: Record<string, unknown>): RunOptions {
   };
 }
 
-function tableCellParagraphOptions(style: Record<string, unknown>): { after: number; alignment: AlignmentType } {
+function tableCellParagraphOptions(style: Record<string, unknown>): { after: number; alignment: (typeof AlignmentType)[keyof typeof AlignmentType] } {
   return { after: 80, alignment: alignmentToWordType((style?.alignment as string) || DEFAULT_TABLE_STYLE.body_cell.alignment) };
 }
 
@@ -649,11 +653,11 @@ function createDocxTable(rows: TableRow[], columnCount: number, context: ExportC
   const fullWidth = table.full_width !== false;
   const options: ConstructorParameters<typeof Table>[0] = {
     rows,
+    columnWidths: fullWidth ? tableColumnWidths(columnCount) : undefined,
     width: fullWidth ? { size: 100, type: WidthType.PERCENTAGE } : { size: 0, type: WidthType.AUTO },
     layout: fullWidth ? TableLayoutType.FIXED : TableLayoutType.AUTOFIT,
     borders: tableBorders(context) as never,
   };
-  if (fullWidth) options.columnWidths = tableColumnWidths(columnCount);
   return new Table(options);
 }
 
@@ -983,7 +987,7 @@ interface ImageNode {
   alt?: string;
 }
 
-async function imageRunFromNode(node: ImageNode, context: ExportContext, options: { loadRetry?: { retryAttempts?: number; retryDelayMs?: number; onRetry?: (a: number, e: unknown) => void }; loadedImage?: LoadedImage | null } = {}): Promise<TextRun> {
+async function imageRunFromNode(node: ImageNode, context: ExportContext, options: { loadRetry?: { retryAttempts?: number; retryDelayMs?: number; onRetry?: (a: number, e: unknown) => void }; loadedImage?: LoadedImage | null } = {}): Promise<TextRun | ImageRun> {
   let loaded: LoadedImage | null = null;
   const imageLabel = compactText(node.alt || node.url || '未知图片');
   const imageIndex = (context.imageCount || 0) + 1;
@@ -994,7 +998,7 @@ async function imageRunFromNode(node: ImageNode, context: ExportContext, options
   try {
     loaded = Object.prototype.hasOwnProperty.call(options, 'loadedImage')
       ? (options.loadedImage as LoadedImage | null)
-      : await loadImageWithRetry(node.url, { baseDir: context.baseDir }, options.loadRetry || {});
+      : await loadImageWithRetry(node.url, { baseDir: context.baseDir, assetResolver: context.assetResolver }, options.loadRetry || {});
   } catch (error) {
     const message = `图片无法导出：${imageLabel}，${compactText((error as Error).message || '下载失败', 120)}`;
     addWarning(context, message);
@@ -1258,31 +1262,9 @@ async function mermaidCodeToDocxBlocks(code: string, context: ExportContext): Pr
   const total = context.stats?.mermaidCount || nextIndex;
   let cacheEntry: ReturnType<typeof getMermaidCacheEntry> | null = null;
   try {
-    cacheEntry = getMermaidCacheEntry(value);
-    reportConversionProgress(context, cacheEntry.exists
-      ? `Mermaid 图 ${nextIndex}/${total} 已命中本地缓存。`
-      : `正在转换 Mermaid 图 ${nextIndex}/${total}，可能需要联网等待。`);
-    const loadRetry = {
-      retryAttempts: 2,
-      retryDelayMs: 3000,
-      onRetry: (attempt: number) => {
-        reportConversionProgress(context, `Mermaid 图 ${nextIndex}/${total} 转换失败，3 秒后第 ${attempt} 次重试。`);
-      },
-    };
-    const block = cacheEntry.exists
-      ? await imageParagraphFromSource(`file://${cacheEntry.filePath}`, 'Mermaid 图', context)
-      : await (async () => {
-          const loaded = await loadImageWithRetry(mermaidInkUrl(cacheEntry.code), { baseDir: context.baseDir }, loadRetry);
-          if (loaded?.buffer?.length) {
-            try {
-              saveMermaidCacheImage(cacheEntry.hash, loaded.buffer);
-            } catch {
-              /* cache write failure non-fatal */
-            }
-          }
-          return imageParagraphFromLoadedImage(mermaidInkUrl(cacheEntry.code), 'Mermaid 图', loaded, context);
-        })();
-    reportConversionProgress(context, `Mermaid 图 ${nextIndex}/${total} 已转换并缓存。`);
+    const buffer = await renderLocalDiagram('mermaid', value);
+    const block = await imageParagraphFromLoadedImage('local-mermaid', 'Mermaid 图', { buffer, type: 'png' }, context);
+    reportConversionProgress(context, `Mermaid 图 ${nextIndex}/${total} 已本地转换。`);
     return [block];
   } catch (error) {
     const message = `Mermaid 图无法导出：${compactText((error as Error).message || '转换失败', 120)}`;
@@ -1517,7 +1499,7 @@ function getListLevelIndent(referenceConfig: NumberingReferenceConfig, level: nu
   return { left, hanging };
 }
 
-function createListNumberingLevel(referenceConfig: NumberingReferenceConfig, level: number) {
+function createListNumberingLevel(referenceConfig: NumberingReferenceConfig, level: number): ILevelsOptions {
   const ordered = referenceConfig.ordered === true;
   const orderedStyle = getOrderedListWordStyle(referenceConfig.orderedListStyle);
   const marker = UNORDERED_LIST_MARKERS[referenceConfig.unorderedListStyle] || UNORDERED_LIST_MARKERS.disc;
@@ -1535,7 +1517,7 @@ function createListNumberingLevel(referenceConfig: NumberingReferenceConfig, lev
   };
 }
 
-function createHeadingNumberingConfig() {
+function createHeadingNumberingConfig(): INumberingOptions['config'][number] {
   return {
     reference: HEADING_NUMBERING_REFERENCE,
     levels: [0, 1, 2, 3, 4, 5].map((level) => ({
@@ -1553,7 +1535,7 @@ function createHeadingNumberingConfig() {
 function createNumberingConfig(context: ExportContext) {
   const references = context.numberingReferences || [];
   if (!references.length && !context.usesHeadingNumbering) return undefined;
-  const config: unknown[] = [];
+  const config: Array<INumberingOptions['config'][number]> = [];
   if (context.usesHeadingNumbering) config.push(createHeadingNumberingConfig());
   config.push(...references.map((referenceConfig) => ({
     reference: referenceConfig.reference,
@@ -1624,13 +1606,14 @@ function buildHeadingDefaultOverrides(exportFormat: ExportFormatLike | null): Re
 
 // ── 顶层装配 ────────────────────────────────────────────────────────────────
 export async function buildDocxResult(
-  payload: { project_name?: string; outline?: OutlineItemLike[]; export_format?: Record<string, unknown> | null; base_dir?: string; baseDir?: string; subject_replacement_comment_terms?: string[] },
+  payload: { assetResolver?: import('./images').ImageContext['assetResolver']; project_name?: string; outline?: OutlineItemLike[]; export_format?: Record<string, unknown> | null; base_dir?: string; baseDir?: string; subject_replacement_comment_terms?: string[] },
   options: { onProgress?: (p: BuildProgress) => void; warnings?: string[] } = {},
 ): Promise<BuildResult> {
   const exportFormat = (payload && payload.export_format) || null;
   const stats = countOutlineStats(payload.outline || []);
   const context: ExportContext = {
     baseDir: payload?.base_dir || payload?.baseDir,
+    assetResolver: payload.assetResolver,
     onProgress: options.onProgress,
     warnings: options.warnings || [],
     stats,
@@ -1692,7 +1675,7 @@ export async function buildDocxResult(
   } : { top: 1440, right: 1440, bottom: 1440, left: 1440, footer: cmToTwips(1.75) };
   const firstPageDifferent = pageSetup ? pageSetup.first_page_different === true : false;
 
-  const pageSizeConfig: { size?: { width: number; height: number; orientation: PageOrientation } } = {};
+  const pageSizeConfig: { size?: { width: number; height: number; orientation: (typeof PageOrientation)[keyof typeof PageOrientation] } } = {};
   if (pageSetup && pageSetup.paper_size) {
     const dims = PAPER_DIMENSIONS_MM[pageSetup.paper_size as string];
     if (dims) {

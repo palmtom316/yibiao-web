@@ -1,0 +1,1020 @@
+TAP version 13
+# [pi-env] OpenCode 系统工具缺失（agent 将降级）：rg, fd, jq。建议 apt-get install ripgrep jq fd-find
+# Subtest: actual Pi SDK registers confined tools and excludes command execution without contacting a model
+ok 1 - actual Pi SDK registers confined tools and excludes command execution without contacting a model
+  ---
+  duration_ms: 1520.817064
+  type: 'test'
+  ...
+# Subtest: classifies a missing groups validator failure
+ok 2 - classifies a missing groups validator failure
+  ---
+  duration_ms: 1.027054
+  type: 'test'
+  ...
+# Subtest: classifies truncated JSON syntax separately
+ok 3 - classifies truncated JSON syntax separately
+  ---
+  duration_ms: 0.211768
+  type: 'test'
+  ...
+# Subtest: classifies a missing required group field and exposes its path
+ok 4 - classifies a missing required group field and exposes its path
+  ---
+  duration_ms: 0.305964
+  type: 'test'
+  ...
+# Subtest: redacts credentials but preserves ordinary Chinese output
+ok 5 - redacts credentials but preserves ordinary Chinese output
+  ---
+  duration_ms: 0.927123
+  type: 'test'
+  ...
+# Subtest: truncates UTF-8 text without breaking a code point
+ok 6 - truncates UTF-8 text without breaking a code point
+  ---
+  duration_ms: 0.516755
+  type: 'test'
+  ...
+# Subtest: summarizes response structure without copying values
+ok 7 - summarizes response structure without copying values
+  ---
+  duration_ms: 0.663536
+  type: 'test'
+  ...
+# Subtest: failed attempt stores content under its diagnostic trace
+ok 8 - failed attempt stores content under its diagnostic trace
+  ---
+  duration_ms: 2.502139
+  type: 'test'
+  ...
+# Subtest: successful attempt stores metadata without a response file
+ok 9 - successful attempt stores metadata without a response file
+  ---
+  duration_ms: 0.656218
+  type: 'test'
+  ...
+# Subtest: marks a fallback run as degraded
+ok 10 - marks a fallback run as degraded
+  ---
+  duration_ms: 0.660535
+  type: 'test'
+  ...
+# Subtest: swallows persistence failures and reports them once
+ok 11 - swallows persistence failures and reports them once
+  ---
+  duration_ms: 0.818713
+  type: 'test'
+  ...
+# Subtest: throttles expired cleanup to once per hour
+ok 12 - throttles expired cleanup to once per hour
+  ---
+  duration_ms: 0.366487
+  type: 'test'
+  ...
+# Subtest: writes and reads a sanitized failure under the configured root
+ok 13 - writes and reads a sanitized failure under the configured root
+  ---
+  duration_ms: 7.291924
+  type: 'test'
+  ...
+# Subtest: caps stored failure content at 60KB
+ok 14 - caps stored failure content at 60KB
+  ---
+  duration_ms: 3.77799
+  type: 'test'
+  ...
+# Subtest: deletes diagnostic day directories older than seven days
+ok 15 - deletes diagnostic day directories older than seven days
+  ---
+  duration_ms: 2.295212
+  type: 'test'
+  ...
+# Subtest: records malformed primary and successful repair without exposing prompt text
+ok 16 - records malformed primary and successful repair without exposing prompt text
+  ---
+  duration_ms: 5.698368
+  type: 'test'
+  ...
+# Subtest: preserves final validator issue and trace metadata after all retries fail
+ok 17 - preserves final validator issue and trace metadata after all retries fail
+  ---
+  duration_ms: 1.910069
+  type: 'test'
+  ...
+# Subtest: closes the primary attempt when the upstream request fails
+ok 18 - closes the primary attempt when the upstream request fails
+  ---
+  duration_ms: 0.309897
+  type: 'test'
+  ...
+# Subtest: instruments parseJsonResponseContent repair path
+ok 19 - instruments parseJsonResponseContent repair path
+  ---
+  duration_ms: 0.795113
+  type: 'test'
+  ...
+# Subtest: failed metadata commit removes only newly uploaded bytes
+ok 20 - failed metadata commit removes only newly uploaded bytes
+  ---
+  duration_ms: 13.607679
+  type: 'test'
+  ...
+# Subtest: legacy personnel deletion is rejected before any database or filesystem mutation
+ok 21 - legacy personnel deletion is rejected before any database or filesystem mutation
+  ---
+  duration_ms: 0.356929
+  type: 'test'
+  ...
+# Subtest: 12 位且包含四类字符的密码通过
+ok 22 - 12 位且包含四类字符的密码通过
+  ---
+  duration_ms: 1.350546
+  type: 'test'
+  ...
+# Subtest: 逐项拒绝长度和字符类型不满足的密码
+ok 23 - 逐项拒绝长度和字符类型不满足的密码
+  ---
+  duration_ms: 0.26106
+  type: 'test'
+  ...
+# Subtest: 拒绝默认密码
+ok 24 - 拒绝默认密码
+  ---
+  duration_ms: 0.093696
+  type: 'test'
+  ...
+# Subtest: 受限令牌只能通过初始改密校验
+ok 25 - 受限令牌只能通过初始改密校验
+  ---
+  duration_ms: 9.244694
+  type: 'test'
+  ...
+# Subtest: 旧正式令牌没有 purpose 时继续兼容
+ok 26 - 旧正式令牌没有 purpose 时继续兼容
+  ---
+  duration_ms: 0.737801
+  type: 'test'
+  ...
+# Subtest: 未知 purpose 的签名令牌不能作为正式访问令牌
+ok 27 - 未知 purpose 的签名令牌不能作为正式访问令牌
+  ---
+  duration_ms: 0.559397
+  type: 'test'
+  ...
+# Subtest: 正式令牌不能用于初始改密
+ok 28 - 正式令牌不能用于初始改密
+  ---
+  duration_ms: 0.999972
+  type: 'test'
+  ...
+# Subtest: 受限令牌不能访问普通受保护路由
+ok 29 - 受限令牌不能访问普通受保护路由
+  ---
+  duration_ms: 89.586742
+  type: 'test'
+  ...
+# Subtest: 资源下载不再是可授予模块
+ok 30 - 资源下载不再是可授予模块
+  ---
+  duration_ms: 0.478188
+  type: 'test'
+  ...
+# Subtest: 历史 modules 中的 resources 会被权限解析过滤
+ok 31 - 历史 modules 中的 resources 会被权限解析过滤
+  ---
+  duration_ms: 1.249619
+  type: 'test'
+  ...
+# Subtest: 初次部署默认系统名称为易标投标工具箱web版
+ok 32 - 初次部署默认系统名称为易标投标工具箱web版
+  ---
+  duration_ms: 0.560316
+  type: 'test'
+  ...
+# Subtest: 空用户表创建必须改密的 admin/admin
+ok 33 - 空用户表创建必须改密的 admin/admin
+  ---
+  duration_ms: 129.309339
+  type: 'test'
+  ...
+# Subtest: 非空用户表跳过且不写用户
+ok 34 - 非空用户表跳过且不写用户
+  ---
+  duration_ms: 59.972971
+  type: 'test'
+  ...
+# Subtest: 空表判断和管理员创建在串行化表锁事务中完成
+ok 35 - 空表判断和管理员创建在串行化表锁事务中完成
+  ---
+  duration_ms: 58.661696
+  type: 'test'
+  ...
+# Subtest: 唯一约束导致的种子竞争按已存在用户跳过
+ok 36 - 唯一约束导致的种子竞争按已存在用户跳过
+  ---
+  duration_ms: 58.408888
+  type: 'test'
+  ...
+# Subtest: 可重试事务冲突后重新执行种子事务
+ok 37 - 可重试事务冲突后重新执行种子事务
+  ---
+  duration_ms: 60.926391
+  type: 'test'
+  ...
+# Subtest: MinerU denies unauthorized sends, limits retries, handles timeout and rejects corrupt archives
+ok 38 - MinerU denies unauthorized sends, limits retries, handles timeout and rejects corrupt archives
+  ---
+  duration_ms: 1534.475118
+  type: 'test'
+  ...
+# Subtest: 合并上一页孤立表头与下一页从序号1开始的续表
+ok 39 - 合并上一页孤立表头与下一页从序号1开始的续表
+  ---
+  duration_ms: 1.402764
+  type: 'test'
+  ...
+# Subtest: 合并已有数据行且序号连续的跨页续表
+ok 40 - 合并已有数据行且序号连续的跨页续表
+  ---
+  duration_ms: 0.186667
+  type: 'test'
+  ...
+# Subtest: 序号不连续时不合并相邻页面表格
+ok 41 - 序号不连续时不合并相邻页面表格
+  ---
+  duration_ms: 0.204951
+  type: 'test'
+  ...
+# Subtest: 没有语义表头时不合并同列数独立表格
+ok 42 - 没有语义表头时不合并同列数独立表格
+  ---
+  duration_ms: 0.10622
+  type: 'test'
+  ...
+# Subtest: 技术方案导出对投标主体替换结果插入核对批注
+ok 43 - 技术方案导出对投标主体替换结果插入核对批注
+  ---
+  duration_ms: 98.099689
+  type: 'test'
+  ...
+# Subtest: HTML 表格数字序号首行不会被误设为表头
+ok 44 - HTML 表格数字序号首行不会被误设为表头
+  ---
+  duration_ms: 45.833792
+  type: 'test'
+  ...
+# Subtest: HTML 表格显式 th 仍使用表头样式
+ok 45 - HTML 表格显式 th 仍使用表头样式
+  ---
+  duration_ms: 11.742934
+  type: 'test'
+  ...
+# Subtest: upstream illustration composition preserves multiple figures and is idempotent
+ok 46 - upstream illustration composition preserves multiple figures and is idempotent
+  ---
+  duration_ms: 1.36851
+  type: 'test'
+  ...
+# Subtest: Mermaid composition prefers its persisted asset to transient code
+ok 47 - Mermaid composition prefers its persisted asset to transient code
+  ---
+  duration_ms: 0.165815
+  type: 'test'
+  ...
+# Subtest: template classification is exhaustive and keeps signatures manual
+ok 48 - template classification is exhaustive and keeps signatures manual
+  ---
+  duration_ms: 0.905232
+  type: 'test'
+  ...
+# Subtest: local resource queue runs one job and preserves the waiting project context
+ok 49 - local resource queue runs one job and preserves the waiting project context
+  ---
+  duration_ms: 1.517791
+  type: 'test'
+  ...
+# Subtest: 没有歧义候选时不调用 Pi Agent
+ok 50 - 没有歧义候选时不调用 Pi Agent
+  ---
+  duration_ms: 0.92612
+  type: 'test'
+  ...
+# Subtest: 歧义候选通过一次受约束 Pi 调用返回分类
+ok 51 - 歧义候选通过一次受约束 Pi 调用返回分类
+  ---
+  duration_ms: 0.318289
+  type: 'test'
+  ...
+# Subtest: Pi 返回不存在的候选 ID 时安全降级并要求人工复核
+ok 52 - Pi 返回不存在的候选 ID 时安全降级并要求人工复核
+  ---
+  duration_ms: 0.22113
+  type: 'test'
+  ...
+# Subtest: Pi 忙碌或不可用时不伪造结论
+ok 53 - Pi 忙碌或不可用时不伪造结论
+  ---
+  duration_ms: 0.166049
+  type: 'test'
+  ...
+# Subtest: 识别采购需求响应程度为技术响应表
+ok 54 - 识别采购需求响应程度为技术响应表
+  ---
+  duration_ms: 3.183332
+  type: 'test'
+  ...
+# Subtest: 多标段仅锁定当前包采购需求
+ok 55 - 多标段仅锁定当前包采购需求
+  ---
+  duration_ms: 0.708852
+  type: 'test'
+  ...
+# Subtest: 多标段未选择时要求先选择标段
+ok 56 - 多标段未选择时要求先选择标段
+  ---
+  duration_ms: 0.243873
+  type: 'test'
+  ...
+# Subtest: 只有独立商务条款偏离表时不提供技术工作台
+ok 57 - 只有独立商务条款偏离表时不提供技术工作台
+  ---
+  duration_ms: 0.261059
+  type: 'test'
+  ...
+# Subtest: 评分表中出现采购需求响应字样不应误识别为偏离表模板
+ok 58 - 评分表中出现采购需求响应字样不应误识别为偏离表模板
+  ---
+  duration_ms: 0.456584
+  type: 'test'
+  ...
+# Subtest: 识别技术规范书应答偏离表并定位技术规范书来源章节
+ok 59 - 识别技术规范书应答偏离表并定位技术规范书来源章节
+  ---
+  duration_ms: 0.387049
+  type: 'test'
+  ...
+# Subtest: 技术规范书点对点应答没有偏离表表头时不弹工作台入口
+ok 60 - 技术规范书点对点应答没有偏离表表头时不弹工作台入口
+  ---
+  duration_ms: 0.143843
+  type: 'test'
+  ...
+# Subtest: 目录页中的技术规范书应答偏离表条目没有真实表格时不识别为模板
+ok 61 - 目录页中的技术规范书应答偏离表条目没有真实表格时不识别为模板
+  ---
+  duration_ms: 0.131574
+  type: 'test'
+  ...
+# Subtest: 技术评分表包含响应和偏离字样也不应误识别为偏离表模板
+ok 62 - 技术评分表包含响应和偏离字样也不应误识别为偏离表模板
+  ---
+  duration_ms: 0.389206
+  type: 'test'
+  ...
+# Subtest: Word 转换出的粗体段落章节也能识别来源边界
+ok 63 - Word 转换出的粗体段落章节也能识别来源边界
+  ---
+  duration_ms: 0.398277
+  type: 'test'
+  ...
+# Subtest: 目录中的同名章节不覆盖后面的真实采购需求和表单
+ok 64 - 目录中的同名章节不覆盖后面的真实采购需求和表单
+  ---
+  duration_ms: 0.254889
+  type: 'test'
+  ...
+# Subtest: 多包 includeRanges 裁剪来源时仍识别公共技术商务偏离表模板
+ok 65 - 多包 includeRanges 裁剪来源时仍识别公共技术商务偏离表模板
+  ---
+  duration_ms: 0.905969
+  type: 'test'
+  ...
+# Subtest: 导出确认后的技术响应与偏离表并保留项目原则换行
+ok 66 - 导出确认后的技术响应与偏离表并保留项目原则换行
+  ---
+  duration_ms: 56.07943
+  type: 'test'
+  ...
+# Subtest: 导出的偏离表默认水平居中和垂直居中
+ok 67 - 导出的偏离表默认水平居中和垂直居中
+  ---
+  duration_ms: 17.992765
+  type: 'test'
+  ...
+# Subtest: 导出的招标文件要求保留参考文件项目符号
+ok 68 - 导出的招标文件要求保留参考文件项目符号
+  ---
+  duration_ms: 27.447305
+  type: 'test'
+  ...
+# Subtest: 导出的招标文件要求保留图片缺失提示
+ok 69 - 导出的招标文件要求保留图片缺失提示
+  ---
+  duration_ms: 19.555288
+  type: 'test'
+  ...
+# Subtest: 导出的原文 HTML 表格保留横向和纵向合并单元格
+ok 70 - 导出的原文 HTML 表格保留横向和纵向合并单元格
+  ---
+  duration_ms: 15.909484
+  type: 'test'
+  ...
+# Subtest: 未确认工作区不允许正式导出
+ok 71 - 未确认工作区不允许正式导出
+  ---
+  duration_ms: 0.997154
+  type: 'test'
+  ...
+# Subtest: 导出使用招标文件原始偏离表表头并保留表后说明签章区
+ok 72 - 导出使用招标文件原始偏离表表头并保留表后说明签章区
+  ---
+  duration_ms: 13.779891
+  type: 'test'
+  ...
+# Subtest: 五列技术规范书应答偏离表导出不补系统默认列名
+ok 73 - 五列技术规范书应答偏离表导出不补系统默认列名
+  ---
+  duration_ms: 7.037306
+  type: 'test'
+  ...
+# Subtest: 导出时对空项目字段和系统推导字段插入 Word 批注
+ok 74 - 导出时对空项目字段和系统推导字段插入 Word 批注
+  ---
+  duration_ms: 7.281849
+  type: 'test'
+  ...
+# Subtest: 硬校验阻断脏字段和过长条目号
+ok 75 - 硬校验阻断脏字段和过长条目号
+  ---
+  duration_ms: 0.747459
+  type: 'test'
+  ...
+# Subtest: 硬校验不因章节标题行缺少正文而阻断导出
+ok 76 - 硬校验不因章节标题行缺少正文而阻断导出
+  ---
+  duration_ms: 0.241875
+  type: 'test'
+  ...
+# Subtest: 三、项目原则及其编号子原则整体只生成一行
+ok 77 - 三、项目原则及其编号子原则整体只生成一行
+  ---
+  duration_ms: 2.370131
+  type: 'test'
+  ...
+# Subtest: 测评对象说明文字和有序号的系统表格整体只生成一行
+ok 78 - 测评对象说明文字和有序号的系统表格整体只生成一行
+  ---
+  duration_ms: 1.195915
+  type: 'test'
+  ...
+# Subtest: 普通编号条款一条一行且无编号解释跟随最近条款
+ok 79 - 普通编号条款一条一行且无编号解释跟随最近条款
+  ---
+  duration_ms: 1.172603
+  type: 'test'
+  ...
+# Subtest: 条目号使用清洗后的来源章节完整路径，去掉包号和行号范围
+ok 80 - 条目号使用清洗后的来源章节完整路径，去掉包号和行号范围
+  ---
+  duration_ms: 1.863429
+  type: 'test'
+  ...
+# Subtest: 加粗编号标题和同行正文拆开：标题进条目号，正文进招标文件要求
+ok 81 - 加粗编号标题和同行正文拆开：标题进条目号，正文进招标文件要求
+  ---
+  duration_ms: 0.393332
+  type: 'test'
+  ...
+# Subtest: 标题独占一行时招标文件要求不重复显示同名标题
+ok 82 - 标题独占一行时招标文件要求不重复显示同名标题
+  ---
+  duration_ms: 0.337175
+  type: 'test'
+  ...
+# Subtest: 测评内容和方法父章节整体聚合子项，避免标题空行
+ok 83 - 测评内容和方法父章节整体聚合子项，避免标题空行
+  ---
+  duration_ms: 1.47648
+  type: 'test'
+  ...
+# Subtest: 参考文件条款把 Markdown 连字符还原为项目符号
+ok 84 - 参考文件条款把 Markdown 连字符还原为项目符号
+  ---
+  duration_ms: 0.32375
+  type: 'test'
+  ...
+# Subtest: 技术规范书应答偏离表按一级条款聚合小数子条款
+ok 85 - 技术规范书应答偏离表按一级条款聚合小数子条款
+  ---
+  duration_ms: 1.212965
+  type: 'test'
+  ...
+# Subtest: 技术规范书应答偏离表不因小数子条款被解析为标题而拆行
+ok 86 - 技术规范书应答偏离表不因小数子条款被解析为标题而拆行
+  ---
+  duration_ms: 0.562239
+  type: 'test'
+  ...
+# Subtest: 优先复用 STEP02 字段并补充项目编号、采购编号和包信息
+ok 87 - 优先复用 STEP02 字段并补充项目编号、采购编号和包信息
+  ---
+  duration_ms: 1.987436
+  type: 'test'
+  ...
+# Subtest: 项目字段清洗 Markdown 转义且不把 HTML 表格识别为包名称
+ok 88 - 项目字段清洗 Markdown 转义且不把 HTML 表格识别为包名称
+  ---
+  duration_ms: 0.578949
+  type: 'test'
+  ...
+# Subtest: 当前选择包号可从包1标题继承为纯数字，包名称无名称时留空
+ok 89 - 当前选择包号可从包1标题继承为纯数字，包名称无名称时留空
+  ---
+  duration_ms: 0.216546
+  type: 'test'
+  ...
+# Subtest: 空包号后紧跟包名称标签时不把字段名当成包号
+ok 90 - 空包号后紧跟包名称标签时不把字段名当成包号
+  ---
+  duration_ms: 0.173492
+  type: 'test'
+  ...
+# Subtest: 响应文件模板中的空采购代理编号不误识别为项目编号
+ok 91 - 响应文件模板中的空采购代理编号不误识别为项目编号
+  ---
+  duration_ms: 0.146804
+  type: 'test'
+  ...
+# Subtest: 手动保存项目字段时也过滤响应文件模板泄漏的项目编号
+ok 92 - 手动保存项目字段时也过滤响应文件模板泄漏的项目编号
+  ---
+  duration_ms: 0.87881
+  type: 'test'
+  ...
+# Subtest: 从招标原表识别列名且保留人工响应列为空
+ok 93 - 从招标原表识别列名且保留人工响应列为空
+  ---
+  duration_ms: 7.365092
+  type: 'test'
+  ...
+# Subtest: 技术规范书应答偏离表只保留招标原表的五列表头
+ok 94 - 技术规范书应答偏离表只保留招标原表的五列表头
+  ---
+  duration_ms: 0.52217
+  type: 'test'
+  ...
+# Subtest: 技术规范书应答偏离表存在目录项时仍定位后文真实 HTML 原表
+ok 95 - 技术规范书应答偏离表存在目录项时仍定位后文真实 HTML 原表
+  ---
+  duration_ms: 4.216146
+  type: 'test'
+  ...
+# Subtest: 识别偏离表模板字段区、原始表头和表后说明签章区
+ok 96 - 识别偏离表模板字段区、原始表头和表后说明签章区
+  ---
+  duration_ms: 1.399281
+  type: 'test'
+  ...
+# Subtest: HTML 偏离表只使用首行作为模板表头
+ok 97 - HTML 偏离表只使用首行作为模板表头
+  ---
+  duration_ms: 0.344804
+  type: 'test'
+  ...
+# Subtest: 标题格式不完全一致时可按偏离表表头语义兜底识别模板
+ok 98 - 标题格式不完全一致时可按偏离表表头语义兜底识别模板
+  ---
+  duration_ms: 0.187419
+  type: 'test'
+  ...
+# Subtest: 粗体表单标题作为模板边界时不吞入上一表签章或下一份表单
+ok 99 - 粗体表单标题作为模板边界时不吞入上一表签章或下一份表单
+  ---
+  duration_ms: 0.296243
+  type: 'test'
+  ...
+# Subtest: 重新识别时按条目号和原文指纹保留人工响应字段
+ok 100 - 重新识别时按条目号和原文指纹保留人工响应字段
+  ---
+  duration_ms: 0.61695
+  type: 'test'
+  ...
+# Subtest: 无法匹配的人工填写行进入变更复核而不是静默丢弃
+ok 101 - 无法匹配的人工填写行进入变更复核而不是静默丢弃
+  ---
+  duration_ms: 0.12016
+  type: 'test'
+  ...
+# Subtest: 没有人工编辑的旧行无需进入变更复核
+ok 102 - 没有人工编辑的旧行无需进入变更复核
+  ---
+  duration_ms: 0.102568
+  type: 'test'
+  ...
+# Subtest: 解析 Markdown 标题、普通段落和原始 HTML 表格并保留原文
+ok 103 - 解析 Markdown 标题、普通段落和原始 HTML 表格并保留原文
+  ---
+  duration_ms: 1.767347
+  type: 'test'
+  ...
+# Subtest: 带编号的独立行保留条目号
+ok 104 - 带编号的独立行保留条目号
+  ---
+  duration_ms: 0.376464
+  type: 'test'
+  ...
+# Subtest: 正文开头年份不误判为条款编号
+ok 105 - 正文开头年份不误判为条款编号
+  ---
+  duration_ms: 0.148599
+  type: 'test'
+  ...
+# Subtest: 复用原始 Markdown、文件指纹和当前标段，不复制或重新解析文件
+ok 106 - 复用原始 Markdown、文件指纹和当前标段，不复制或重新解析文件
+  ---
+  duration_ms: 1.130263
+  type: 'test'
+  ...
+# Subtest: 没有已上传招标文件时返回 null
+ok 107 - 没有已上传招标文件时返回 null
+  ---
+  duration_ms: 0.166641
+  type: 'test'
+  ...
+# Subtest: 单标段项目规范化为空标段标识
+ok 108 - 单标段项目规范化为空标段标识
+  ---
+  duration_ms: 0.219527
+  type: 'test'
+  ...
+# Subtest: 多标段项目额外提供按 includeRanges 裁剪的当前包 Markdown
+ok 109 - 多标段项目额外提供按 includeRanges 裁剪的当前包 Markdown
+  ---
+  duration_ms: 0.416054
+  type: 'test'
+  ...
+# Subtest: 默认管理员登录只返回改密令牌
+ok 110 - 默认管理员登录只返回改密令牌
+  ---
+  duration_ms: 210.711348
+  type: 'test'
+  ...
+# Subtest: 弱密码和确认不一致均不能完成初始改密
+ok 111 - 弱密码和确认不一致均不能完成初始改密
+  ---
+  duration_ms: 66.078677
+  type: 'test'
+  ...
+# Subtest: 默认密码和当前密码不能作为新密码
+ok 112 - 默认密码和当前密码不能作为新密码
+  ---
+  duration_ms: 184.281642
+  type: 'test'
+  ...
+# Subtest: 停用管理员不能完成初始改密
+ok 113 - 停用管理员不能完成初始改密
+  ---
+  duration_ms: 64.96966
+  type: 'test'
+  ...
+# Subtest: 普通用户登录行为保持不变
+ok 114 - 普通用户登录行为保持不变
+  ---
+  duration_ms: 195.971302
+  type: 'test'
+  ...
+# Subtest: 强密码修改成功并直接返回正式令牌且不能重放
+ok 115 - 强密码修改成功并直接返回正式令牌且不能重放
+  ---
+  duration_ms: 257.457072
+  type: 'test'
+  ...
+# Subtest: 有效正式访问令牌用于初始改密时返回 403
+ok 116 - 有效正式访问令牌用于初始改密时返回 403
+  ---
+  duration_ms: 69.435244
+  type: 'test'
+  ...
+# Subtest: 无效、过期或未知用途的令牌用于初始改密时返回 401
+ok 117 - 无效、过期或未知用途的令牌用于初始改密时返回 401
+  ---
+  duration_ms: 68.441987
+  type: 'test'
+  ...
+# Subtest: admin/user config reads and writes never return secrets; empty keeps, masks reject, explicit clear works
+ok 118 - admin/user config reads and writes never return secrets; empty keeps, masks reject, explicit clear works
+  ---
+  duration_ms: 101.491821
+  type: 'test'
+  ...
+# Subtest: 可用性检查只做确定性扫描且返回招标源指纹
+ok 119 - 可用性检查只做确定性扫描且返回招标源指纹
+  ---
+  duration_ms: 2.471757
+  type: 'test'
+  ...
+# Subtest: 没有招标源时返回 no-tender
+ok 120 - 没有招标源时返回 no-tender
+  ---
+  duration_ms: 0.130955
+  type: 'test'
+  ...
+# [pi-env] OpenCode 系统工具缺失（agent 将降级）：rg, fd, jq。建议 apt-get install ripgrep jq fd-find
+# Subtest: project images and Pi tools reject traversal, links, absolute paths and remote resources
+ok 121 - project images and Pi tools reject traversal, links, absolute paths and remote resources
+  ---
+  duration_ms: 4.002706
+  type: 'test'
+  ...
+# Subtest: processing policy is scoped, refreshed per send, and never follows redirects
+ok 122 - processing policy is scoped, refreshed per send, and never follows redirects
+  ---
+  duration_ms: 12.471638
+  type: 'test'
+  ...
+# Subtest: Pi environment does not inherit database, JWT or provider credentials
+ok 123 - Pi environment does not inherit database, JWT or provider credentials
+  ---
+  duration_ms: 3.202893
+  type: 'test'
+  ...
+# Subtest: V2 locks technical roots and validates complete, nonduplicated word allocations
+ok 124 - V2 locks technical roots and validates complete, nonduplicated word allocations
+  ---
+  duration_ms: 1.793429
+  type: 'test'
+  ...
+# Subtest: V2 persists stages, awaits knowledge, confirms differences and resumes without repeating accepted stages
+ok 125 - V2 persists stages, awaits knowledge, confirms differences and resumes without repeating accepted stages
+  ---
+  duration_ms: 87.793798
+  type: 'test'
+  ...
+# Subtest: 确定性场景零 Pi 调用并保存一行项目原则
+ok 126 - 确定性场景零 Pi 调用并保存一行项目原则
+  ---
+  duration_ms: 6.534457
+  type: 'test'
+  ...
+# Subtest: 没有招标文件时明确失败
+ok 127 - 没有招标文件时明确失败
+  ---
+  duration_ms: 0.430757
+  type: 'test'
+  ...
+# Subtest: 多包项目用裁剪后的当前包来源生成偏离表行
+ok 128 - 多包项目用裁剪后的当前包来源生成偏离表行
+  ---
+  duration_ms: 1.973383
+  type: 'test'
+  ...
+# Subtest: does not strip the only content line when it equals the chapter title
+ok 129 - does not strip the only content line when it equals the chapter title
+  ---
+  duration_ms: 0.775133
+  type: 'test'
+  ...
+# Subtest: still strips a duplicated heading when body content remains
+ok 130 - still strips a duplicated heading when body content remains
+  ---
+  duration_ms: 0.806121
+  type: 'test'
+  ...
+# Subtest: normalizes STEP03 outline word-control snapshot for content generation
+ok 131 - normalizes STEP03 outline word-control snapshot for content generation
+  ---
+  duration_ms: 0.220639
+  type: 'test'
+  ...
+# Subtest: adds STEP03 section word requirement to chapter prompt
+ok 132 - adds STEP03 section word requirement to chapter prompt
+  ---
+  duration_ms: 0.357918
+  type: 'test'
+  ...
+# Subtest: long unpunctuated content splits within a bounded time and preserves text
+ok 133 - long unpunctuated content splits within a bounded time and preserves text
+  ---
+  duration_ms: 35.913504
+  type: 'test'
+  ...
+# Subtest: near-source matcher counters cannot leak between repeated or unrelated queries
+ok 134 - near-source matcher counters cannot leak between repeated or unrelated queries
+  ---
+  duration_ms: 5.884339
+  type: 'test'
+  ...
+# Subtest: merges duplicate groups and bullets without inventing values
+ok 135 - merges duplicate groups and bullets without inventing values
+  ---
+  duration_ms: 0.883474
+  type: 'test'
+  ...
+# Subtest: builds a non-inventive fallback from existing Step02 analysis
+ok 136 - builds a non-inventive fallback from existing Step02 analysis
+  ---
+  duration_ms: 0.306304
+  type: 'test'
+  ...
+# Subtest: merges equal normalized titles with different ids in stable order
+ok 137 - merges equal normalized titles with different ids in stable order
+  ---
+  duration_ms: 0.132788
+  type: 'test'
+  ...
+# Subtest: minimum quality requires a duration fact
+ok 138 - minimum quality requires a duration fact
+  ---
+  duration_ms: 0.594278
+  type: 'test'
+  ...
+# Subtest: rejects an empty segment result so collectJson can retry
+ok 139 - rejects an empty segment result so collectJson can retry
+  ---
+  duration_ms: 0.201251
+  type: 'test'
+  ...
+# Subtest: builds Step02 fallback without inventing an overall duration when the source has none
+ok 140 - builds Step02 fallback without inventing an overall duration when the source has none
+  ---
+  duration_ms: 0.143222
+  type: 'test'
+  ...
+# Subtest: detects only explicit overall duration labels
+ok 141 - detects only explicit overall duration labels
+  ---
+  duration_ms: 0.134992
+  type: 'test'
+  ...
+# Subtest: Web runners await PostgreSQL knowledge queries instead of silently dropping their results
+ok 142 - Web runners await PostgreSQL knowledge queries instead of silently dropping their results
+  ---
+  duration_ms: 0.720433
+  type: 'test'
+  ...
+# Subtest: 镜像搬运时将连续标准规范书名号清单拆成逐项换行
+ok 143 - 镜像搬运时将连续标准规范书名号清单拆成逐项换行
+  ---
+  duration_ms: 0.710917
+  type: 'test'
+  ...
+# Subtest: 镜像结构后处理将实施原则短条目压回正文而不是生成多级标题
+ok 144 - 镜像结构后处理将实施原则短条目压回正文而不是生成多级标题
+  ---
+  duration_ms: 0.677088
+  type: 'test'
+  ...
+# Subtest: 镜像目录落库前修复表格序号列空值
+ok 145 - 镜像目录落库前修复表格序号列空值
+  ---
+  duration_ms: 1.123992
+  type: 'test'
+  ...
+# Subtest: 镜像表格序号修复不会改动列数不一致的说明行
+ok 146 - 镜像表格序号修复不会改动列数不一致的说明行
+  ---
+  duration_ms: 0.205853
+  type: 'test'
+  ...
+# Subtest: outline shared context includes technical proposal structure instruction
+ok 147 - outline shared context includes technical proposal structure instruction
+  ---
+  duration_ms: 0.722445
+  type: 'test'
+  ...
+# Subtest: builds XM2026 response plan coverage and marks final gate repairs
+ok 148 - builds XM2026 response plan coverage and marks final gate repairs
+  ---
+  duration_ms: 5.211461
+  type: 'test'
+  ...
+# Subtest: marks missing response requirement when final outline has no match
+ok 149 - marks missing response requirement when final outline has no match
+  ---
+  duration_ms: 0.182602
+  type: 'test'
+  ...
+# Subtest: returns null for self-defined or absent response plan requirement
+ok 150 - returns null for self-defined or absent response plan requirement
+  ---
+  duration_ms: 0.122176
+  type: 'test'
+  ...
+# [1] 正向：正常上下文应替换
+#   PASS  的中标人 → 的<fullname>（前导"的"不阻止）
+#   PASS  和采购人 / 中标人将 → 两者都换
+#   PASS  中标人， → <fullname>，（标点边界）
+#   PASS  我方 → <fullname>
+# [2] 防误伤：前缀否定 / 后缀扩词不应替换
+#   PASS  非中标人 不换（前缀"非"）
+#   PASS  未中标人 不换（前缀"未"）
+#   PASS  不中标人 不换（前缀"不"）
+#   PASS  无中标人 不换（前缀"无"）
+#   PASS  中标人员 不换（后缀"员"）
+#   PASS  中标人类 不换（后缀"类"）
+#   PASS  中标人们 不换（后缀"们"）
+# [3] 长同义词优先：长者先匹配，不被短者拆解
+#   PASS  中标 + 中标人 并存：中标人 整体换，不被"中标"先拆
+# [4] 幂等：fullname 含某 synonym 时不在结果上二次替换
+#   PASS  fullname 自含 synonym：首次替换后不二次替换已替换片段
+# [5] 空入参：no-op
+#   PASS  空 replacements → 原样
+#   PASS  null replacements → 原样
+#   PASS  undefined replacements → 原样
+#   PASS  空 content → 空串
+# [6] 多组共存：我方组 + 采购人组同时生效
+#   PASS  甲方/中标人 交叉共存全换
+# [7] normalizeSubjectReplacements：JSON 字符串 → 数组（剔空/去重）
+#   PASS  剔 fullname 空 / synonyms 空 / synonyms 去重
+#   PASS  null → []
+#   PASS  undefined → []
+#   PASS  非法 JSON → []
+#   PASS  已是数组直通
+#   PASS  synonym 等于 fullname 时剔除该 synonym
+# [8] serializeSubjectReplacements：数组 ↔ JSON 字符串（空→null）
+#   PASS  空数组 → null
+#   PASS  null → null
+#   PASS  非空 → JSON 字符串
+# === 27 PASS / 0 FAIL ===
+# Subtest: /home/palmtom/projects/yibiao-web/server/src/tasks/utils/subjectReplacement.test.ts
+ok 40 - /home/palmtom/projects/yibiao-web/server/src/tasks/utils/subjectReplacement.test.ts
+  ---
+  duration_ms: 75.832026
+  type: 'test'
+  ...
+# Subtest: extracts explicit response plan checklist from XM2026 style text
+ok 152 - extracts explicit response plan checklist from XM2026 style text
+  ---
+  duration_ms: 1.987826
+  type: 'test'
+  ...
+# Subtest: detects self-defined format without hard checklist
+ok 153 - detects self-defined format without hard checklist
+  ---
+  duration_ms: 0.211891
+  type: 'test'
+  ...
+# Subtest: treats self-defined format with explicit includes as checklist
+ok 154 - treats self-defined format with explicit includes as checklist
+  ---
+  duration_ms: 0.8569
+  type: 'test'
+  ...
+# Subtest: formats prompt block for explicit checklist
+ok 155 - formats prompt block for explicit checklist
+  ---
+  duration_ms: 0.314137
+  type: 'test'
+  ...
+# Subtest: does not treat numbered list item as response plan heading
+ok 156 - does not treat numbered list item as response plan heading
+  ---
+  duration_ms: 0.232523
+  type: 'test'
+  ...
+# Subtest: stops explicit response plan checklist at next Chinese chapter heading
+ok 157 - stops explicit response plan checklist at next Chinese chapter heading
+  ---
+  duration_ms: 0.264859
+  type: 'test'
+  ...
+# Subtest: does not treat technical scoring table as response chapter checklist
+ok 158 - does not treat technical scoring table as response chapter checklist
+  ---
+  duration_ms: 0.209908
+  type: 'test'
+  ...
+# Subtest: standalone roots obey strict word capacity without forced two-leaf expansion
+ok 159 - standalone roots obey strict word capacity without forced two-leaf expansion
+  ---
+  duration_ms: 0.850279
+  type: 'test'
+  ...
+# Subtest: 不把章节号 1.4 分包划分误判为 4 个分包
+ok 160 - 不把章节号 1.4 分包划分误判为 4 个分包
+  ---
+  duration_ms: 1.316113
+  type: 'test'
+  ...
+# Subtest: 仍能识别明确声明的多包项目
+ok 161 - 仍能识别明确声明的多包项目
+  ---
+  duration_ms: 0.283555
+  type: 'test'
+  ...
+# Subtest: buildSelectedSectionMarkdown keeps only selected package ranges
+ok 162 - buildSelectedSectionMarkdown keeps only selected package ranges
+  ---
+  duration_ms: 0.867924
+  type: 'test'
+  ...
+1..162
+# tests 162
+# suites 0
+# pass 162
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6636.281805

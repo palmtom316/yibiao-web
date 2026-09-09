@@ -113,11 +113,11 @@ interface WebBridge {
     renameFolder: (folderId: string, name: string) => Promise<KnowledgeFolderDto>;
     reorderFolder: (draggedFolderId: string, targetFolderId: string, position: 'before' | 'after') => Promise<KnowledgeBaseIndexMutationResult>;
     deleteFolder: (folderId: string) => Promise<KnowledgeBaseMutationResult>;
-    deleteDocument: (documentId: string) => Promise<KnowledgeBaseMutationResult>;
+    deleteDocument: (documentId: string, version?: number) => Promise<KnowledgeBaseMutationResult>;
     moveDocument: (documentId: string, targetFolderId: string, targetDocumentId?: string | null, position?: 'before' | 'after') => Promise<KnowledgeBaseIndexMutationResult>;
     uploadDocuments: (folderId: string) => Promise<KnowledgeBaseUploadResult>;
     retryDocument: (documentId: string) => Promise<KnowledgeBaseRetryDocumentResult>;
-    startMatching: (documentId: string, batchSize: number) => Promise<never>;
+    startMatching: (documentId: string, batchSize: number) => Promise<KnowledgeBaseRetryDocumentResult>;
     readMarkdown: (documentId: string) => Promise<string>;
     readItems: (documentId: string) => Promise<unknown[]>;
     readAnalysis: (documentId: string) => Promise<Record<string, unknown>>;
@@ -366,7 +366,7 @@ export function installWebBridge(): void {
       reorderFolder: (draggedFolderId, targetFolderId, position) =>
         knowledgeBaseApi.reorderFolder(draggedFolderId, targetFolderId, position),
       deleteFolder: (folderId: string) => knowledgeBaseApi.deleteFolder(folderId),
-      deleteDocument: (documentId: string) => knowledgeBaseApi.deleteDocument(documentId),
+      deleteDocument: (documentId: string, version?: number) => knowledgeBaseApi.deleteDocument(documentId, version),
       moveDocument: (documentId, targetFolderId, targetDocumentId, position) =>
         knowledgeBaseApi.moveDocument(documentId, targetFolderId, targetDocumentId ?? null, position),
       uploadDocuments: async (folderId: string) => {

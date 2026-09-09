@@ -1,3 +1,4 @@
+import { processingFetch, type ProcessingScope } from '../security/processing';
 // OpenCode AI proxy（移植自桌面 client/electron/services/opencode/aiServiceOpenAiProxy.cjs）。
 // opencode 二进制把 provider `yibiao` 配成 @ai-sdk/openai-compatible 指向本 proxy（127.0.0.1:<port>/v1）。
 // 本 proxy 收到 /v1/chat/completions 后：body.model 替换为平台 model_name、删 max_tokens*，
@@ -25,6 +26,7 @@ export interface AgentProxyDiagnostics {
 }
 
 export interface AgentProxyActivityContext {
+  processingScope?: ProcessingScope;
   task_id?: string;
   task_token?: string;
 }
@@ -749,7 +751,7 @@ async function requestOpenCodeChatCompletion(params: {
             created_at: new Date().toISOString(),
           });
 
-          const response = await fetch(`${trimBaseUrl(config.base_url)}/chat/completions`, {
+          const response = await processingFetch(`${trimBaseUrl(config.base_url)}/chat/completions`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -757,7 +759,7 @@ async function requestOpenCodeChatCompletion(params: {
             },
             body: JSON.stringify(requestBody),
             signal: timeout.signal,
-          });
+          }, activityContext?.processingScope);
 
           appendProxyDiagnostic(diagnostics, 'proxy.upstream.headers', {
             request_id: requestId,

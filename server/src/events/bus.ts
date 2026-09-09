@@ -11,6 +11,7 @@
 //  - emit 是同步的（订阅者回调同步执行）；订阅者应快速转写入 SSE 流后即返回。
 
 export type SseChannel =
+  | 'jobs'
   | 'tasks' // 任务引擎进度：{task, ...patch}（对齐桌面 tasks:event 包络）
   | 'kb-document' // 知识库抽取流水线：{document}
   | 'ai-http-error' // AI 上游 HTML 类错误弹窗：AiHttpErrorPayload

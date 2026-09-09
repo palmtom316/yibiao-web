@@ -1,0 +1,89 @@
+TAP version 13
+# Subtest: manual business confirmation, immutable source copy, technical truth and streaming Word/ZIP manifest
+ok 1 - manual business confirmation, immutable source copy, technical truth and streaming Word/ZIP manifest
+  ---
+  duration_ms: 3398.237021
+  type: 'test'
+  ...
+# Subtest: snapshot narrative images and same-name attachments survive archive, unlink and physical source deletion; incomplete copies never publish
+ok 2 - snapshot narrative images and same-name attachments survive archive, unlink and physical source deletion; incomplete copies never publish
+  ---
+  duration_ms: 3731.252566
+  type: 'test'
+  ...
+# Subtest: business re-extraction preserves human revisions and a completed extraction job is idempotent
+ok 3 - business re-extraction preserves human revisions and a completed extraction job is idempotent
+  ---
+  duration_ms: 2417.062224
+  type: 'test'
+  ...
+# Subtest: migration baseline, repeat initialization, old data, drift and failure gates on real PostgreSQL
+    # Subtest: empty database initializes; repeated initialization preserves password and edited docs
+    ok 1 - empty database initializes; repeated initialization preserves password and edited docs
+      ---
+      duration_ms: 3385.313605
+      type: 'test'
+      ...
+    # Subtest: db-push-style existing database refuses deploy until drift checked and baseline resolved
+    ok 2 - db-push-style existing database refuses deploy until drift checked and baseline resolved
+      ---
+      duration_ms: 6493.098077
+      type: 'test'
+      ...
+    # Subtest: schema drift is refused
+    ok 3 - schema drift is refused
+      ---
+      duration_ms: 774.431932
+      type: 'test'
+      ...
+    # Subtest: failed migration exits initialization before seed and leaves no committed artifact
+    ok 4 - failed migration exits initialization before seed and leaves no committed artifact
+      ---
+      duration_ms: 761.792881
+      type: 'test'
+      ...
+    1..4
+ok 4 - migration baseline, repeat initialization, old data, drift and failure gates on real PostgreSQL
+  ---
+  duration_ms: 11565.413418
+  type: 'test'
+  ...
+# Subtest: originals, immutable image parses, authorized export and failure preservation on PostgreSQL
+ok 5 - originals, immutable image parses, authorized export and failure preservation on PostgreSQL
+  ---
+  duration_ms: 4213.483424
+  type: 'test'
+  ...
+# Subtest: PostgreSQL knowledge search covers 0/100/101/235, Chinese, file names and page fallback
+ok 6 - PostgreSQL knowledge search covers 0/100/101/235, Chinese, file names and page fallback
+  ---
+  duration_ms: 1266.570168
+  type: 'test'
+  ...
+# Subtest: ledger relations, decimal precision, validity boundaries, optimistic writes and source protection
+ok 7 - ledger relations, decimal precision, validity boundaries, optimistic writes and source protection
+  ---
+  duration_ms: 1426.421962
+  type: 'test'
+  ...
+# Subtest: legacy migration requires explicit identity mapping and is repeatable without deleting originals
+ok 8 - legacy migration requires explicit identity mapping and is repeatable without deleting originals
+  ---
+  duration_ms: 1354.590605
+  type: 'test'
+  ...
+# Subtest: project plus shared processing requires both policies and refreshes revoked modules
+ok 9 - project plus shared processing requires both policies and refreshes revoked modules
+  ---
+  duration_ms: 1270.279213
+  type: 'test'
+  ...
+1..9
+# tests 13
+# suites 0
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 17204.998899

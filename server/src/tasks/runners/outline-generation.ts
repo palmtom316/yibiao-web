@@ -1,3 +1,5 @@
+import { templateForOutline } from '../../openxml/service';
+import { runOutlineV2 } from './outline-v2';
 // L4 runner #64：outline-generation（技术方案目录生成）编排入口。
 // 移植自 client/electron/services/outlineGenerationTask.cjs:2935-3049（runOutlineGenerationTask）。
 //
@@ -210,6 +212,8 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
 
   const referenceKnowledgeDocumentIds = normalizeReferenceDocumentIds(payload);
   const storedPlan = (await workspaceStore.loadTechnicalPlan()) || {};
+  const useV2 = process.env.YIBIAO_OUTLINE_V2 !== 'false' && storedPlan.workflowKind !== 'existing-plan-expansion'
+    && Boolean(agentService?.requestQuestion && agentService.getStatus().available);
   const overview = String(storedPlan.projectOverview || '');
   const requirements = String(storedPlan.techRequirements || '');
   const missingRequiredBidAnalysisLabels = getMissingRequiredBidAnalysisLabels(storedPlan);
@@ -237,7 +241,7 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
   const proposalStructureInstruction = formatTechnicalProposalStructureForPrompt(proposalStructureRequirement);
   if (proposalStructureRequirement.mode === 'self_defined') {
     await log('已识别技术/响应方案要求：格式自拟，未发现硬性章节清单，本次按技术评分表优先生成目录。', 8);
-  } else if (proposalStructureRequirement.mode === 'explicit_checklist') {
+  } else if (proposalStructureRequirement.mode === 'explicit_checklist' && !useV2) {
     await confirmProposalStructureStrategy(agentService, ctx.projectId, proposalStructureRequirement, log);
   }
   const isExpansionWorkflow = storedPlan.workflowKind === 'existing-plan-expansion';
@@ -248,6 +252,9 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
     || (payload as Record<string, unknown>).outlineWordControlOptions
     || (storedPlan as Record<string, unknown>).outlineWordControlOptions,
   );
+  const templateProject = await ctx.prisma.project.findUniqueOrThrow({ where: { id: ctx.projectId } });
+  const template = await templateForOutline(ctx.prisma, ctx.projectId, ctx.userId || templateProject.ownerId);
+  await log(template.message || '模板检查完成', 4);
   const baseTaskPayload = {
     ...payload,
     project_id: ctx.projectId,
@@ -259,7 +266,7 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
     outline_word_control_options: outlineWordControlOptions,
     wordControlInstruction: buildOutlineWordControlInstruction(outlineWordControlOptions),
     proposalStructureRequirement,
-    proposalStructureInstruction,
+    proposalStructureInstruction: [proposalStructureInstruction, template.status === 'success' ? `已抽取 Word 模板章节：${JSON.stringify(template.chapters)}。仅技术方案章节可作为目录候选，商务资质不得进入技术目录。` : '未抽取模板，按既有规则生成普通目录。'].join('\n'),
     reference_knowledge_document_ids: referenceKnowledgeDocumentIds,
   };
 
@@ -305,7 +312,17 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
 
   let outline: OutlinePayload;
   let groups: Awaited<ReturnType<typeof alignedWorkflow>>['groups'] = [];
-  if (isExpansionWorkflow) {
+  let v2Stats: Record<string, unknown> | undefined;
+  if (useV2) {
+    const result = await runOutlineV2(ctx, { overview, requirements, proposalInstruction: baseTaskPayload.proposalStructureInstruction,
+      referenceDocumentIds: referenceKnowledgeDocumentIds, wordOptions: outlineWordControlOptions });
+    outline = result.outline;
+    groups = result.groups;
+    v2Stats = result.stats;
+    const latest = await workspaceStore.loadTechnicalPlan();
+    logs = [...((latest.outlineGenerationTask as { logs?: string[] })?.logs || logs)];
+    currentProgress = 98;
+  } else if (isExpansionWorkflow) {
     if (outlineExpansionMode === 'original-only') {
       await log('已选择仅使用原方案目录，跳过AI补充和知识库补目录。', 96);
       await persistOutline(workspaceStore, updateTask, { status: 'success', progress: 100, logs: [...logs, '目录生成完成。'] }, {
@@ -325,10 +342,14 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
     groups = alignedResult.groups || [];
   }
 
-  const knowledgeItems = loadOutlineKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, log);
-  outline = await enhanceOutlineWithKnowledgeAdditions(aiService, taskPayload, outline, knowledgeItems, log);
+  if (!useV2) {
+    await log('使用普通目录流程（目录 V2 未启用或智能体不可用）');
+    const knowledgeItems = await loadOutlineKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, log);
+    outline = await enhanceOutlineWithKnowledgeAdditions(aiService, taskPayload, outline, knowledgeItems, log);
+  }
   const proposalCoverageBeforeFinal = buildProposalStructureCoverage(proposalStructureRequirement, outline);
-  const finalResult = await runFinalOutlineGate({
+  if (!useV2) {
+    const finalResult = await runFinalOutlineGate({
     aiService,
     agentService,
     payload: taskPayload,
@@ -339,10 +360,11 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
     outlineExpansionMode,
     log,
   });
-  outline = finalResult.outline;
+    outline = finalResult.outline;
+  }
   // 镜像采购需求章：AI 大纲落库前，若开启则提取需求章结构并作为独立顶级章「项目概述」插到最前。
   // 失败/未命中不阻塞 AI 大纲（已生成），仅记日志跳过。
-  if (mirrorProcurement) {
+  if (mirrorProcurement && !useV2) {
     try {
       const tenderMarkdown = tenderMarkdownForOutline || (typeof workspaceStore.readTenderMarkdown === 'function'
         ? await workspaceStore.readTenderMarkdown()
@@ -380,9 +402,7 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
     );
   }
   const finalTaskPartial: Record<string, unknown> = { status: 'success', progress: 100, logs: [...logs, '目录生成完成。'] };
-  if (proposalStructureCoverage) {
-    finalTaskPartial.stats = { proposalStructureCoverage };
-  }
+  if (v2Stats || proposalStructureCoverage) finalTaskPartial.stats = { ...v2Stats, ...(proposalStructureCoverage ? { proposalStructureCoverage } : {}) };
   await persistOutline(workspaceStore, updateTask, finalTaskPartial, {
     outlineData: { ...outline, project_overview: overview },
     outlineWordControlSnapshot: buildOutlineWordControlSnapshot(outlineWordControlOptions, outline),

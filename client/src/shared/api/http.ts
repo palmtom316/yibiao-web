@@ -30,6 +30,12 @@ export function getActiveProjectId(): number | null {
 }
 
 http.interceptors.request.use((config) => {
+  if (config.data instanceof FormData) {
+    const files = Array.from(config.data.values()).filter((value): value is File => value instanceof File);
+    if (files.length > 10 || files.some((file) => file.size > 100 * 1024 * 1024) || files.reduce((n, file) => n + file.size, 0) > 200 * 1024 * 1024) {
+      throw new Error('每个文件最多 100 MiB，每批最多 10 个文件、合计 200 MiB');
+    }
+  }
   const token = localStorage.getItem(TOKEN_KEY);
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;

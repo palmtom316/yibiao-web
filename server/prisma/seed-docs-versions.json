@@ -1,0 +1,93 @@
+{
+  "usage-01": [
+    {
+      "version": "2026-09-08",
+      "title": "生成技术方案",
+      "hash": "98de3a62b42ca88f401d8e68f998bbf8d01d1f5b3c68e0670373e98c12cbbed9"
+    }
+  ],
+  "usage-02": [
+    {
+      "version": "2026-09-08",
+      "title": "已有方案扩写",
+      "hash": "b1e0f71960fc603000601fdc9d3e55fd5dc401b08734f1a4d04dffb108a347ca"
+    }
+  ],
+  "usage-03": [
+    {
+      "version": "2026-09-08",
+      "title": "知识库使用教程",
+      "hash": "c39f2569e5d4ba55450ae23c91278146eb6570292add90fd1f94f247d8669ff0"
+    }
+  ],
+  "usage-04": [
+    {
+      "version": "2026-09-08",
+      "title": "标书查重",
+      "hash": "72eb5ed5ce99910f2b3d35a42dfc7b991a5362d05145a9aad9a6debcab9dbbe8"
+    }
+  ],
+  "usage-05": [
+    {
+      "version": "2026-09-08",
+      "title": "废标项检查",
+      "hash": "8d8e74bc1c84204d00eb664a82a046ff392a8d4bec0a2bc4dbe6312be91c2617"
+    }
+  ],
+  "usage-06": [
+    {
+      "version": "2026-09-08",
+      "title": "问题FAQ使用教程",
+      "hash": "be9eac4a322f4f40d35f3d455f0629c1cba9d4a10d860980fc810a24438b4847"
+    }
+  ],
+  "usage-07": [
+    {
+      "version": "2026-09-08",
+      "title": "用户管理使用教程",
+      "hash": "27233b18c38842b1183c4232a4a224522a642e5aef3dc1e8e0f976de2a6bac1f"
+    }
+  ],
+  "usage-08": [
+    {
+      "version": "2026-09-08",
+      "title": "提示词管理使用教程",
+      "hash": "7205290ea6075db39c01cd38c62f244c0441ebf6a42182aa2e38b1652ad71d73"
+    }
+  ],
+  "faq": [
+    {
+      "version": "2026-09-08",
+      "title": "常见问题",
+      "hash": "8510dd3b55145c344484654e27977aafbc4a33a77e03573123a941674716cec6"
+    }
+  ],
+  "config-01": [
+    {
+      "version": "2026-09-08",
+      "title": "配置文本模型",
+      "hash": "5dfb6d485fa1f686bf73887aaa56c8f6b503b30521aaa2eec33e496fe0e2eee6"
+    }
+  ],
+  "config-02": [
+    {
+      "version": "2026-09-08",
+      "title": "配置生图模型",
+      "hash": "aed9901aa83c6e08bc6bb9dabaf89a8c2288d2aafe7f42b5b12452a473715e43"
+    }
+  ],
+  "config-03": [
+    {
+      "version": "2026-09-08",
+      "title": "选择文件解析方式",
+      "hash": "8e7d2824a96d6ff26d65d88c1e4cfd820f16562420700c795834d73a7d7ea465"
+    }
+  ],
+  "config-04": [
+    {
+      "version": "2026-09-08",
+      "title": "智能体配置",
+      "hash": "a7499747d38fee85f6a699f176e9498ea4ed12819212b43e7617c88296952b4e"
+    }
+  ]
+}

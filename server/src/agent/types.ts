@@ -13,6 +13,8 @@ export interface AgentTaskFile {
 }
 
 export interface AgentActivityEvent {
+  at?: string;
+  task_id?: string;
   stage?: string;
   message?: string;
   source?: string;
@@ -258,7 +260,7 @@ export interface AgentService {
   onStatus(listener: AgentStatusListener): () => void;
   warmup(): Promise<void>;
   /** pi ask-user 通道：返回当前挂起的问题（无则 null）；opencode 回退不实现 */
-  getPendingQuestion?(): AgentPendingQuestion | null;
+  getPendingQuestion?(filter?: { projectId?: number; questionId?: string }): AgentPendingQuestion | null;
   /** pi ask-user 作答：resolve 挂起的 pending Promise；opencode 回退不实现 */
   answerQuestion?(payload: AgentQuestionAnswer): Promise<{ answered: boolean }>;
   /** pi ask-user 通道：服务端 runner 直接发起确认问题；opencode 回退不实现 */

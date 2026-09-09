@@ -1,3 +1,4 @@
+import { awaitJobResult } from './jobs';
 // 技术方案命名空间的 Web 实现：window.yibiao.technicalPlan.* 的底层。
 // 按用户隔离——服务端用 JWT 里的 userId 过滤。DTO 形状与服务端 store 装配结果一致
 // （顶层标量 camelCase，嵌套 task/plan/runtime/section/facts/outline 多为 snake_case）。
@@ -69,11 +70,11 @@ export const technicalPlanApi = {
   importTenderDocument(files: File[]): Promise<ImportResult> {
     const fd = new FormData();
     files.forEach((f) => fd.append('files', f, f.name));
-    return http.post<ImportResult>('/technical-plan/import-tender-document', fd).then((r) => r.data);
+    return http.post<ImportResult>('/technical-plan/import-tender-document', fd).then((r) => awaitJobResult<ImportResult>(r.data));
   },
   importOriginalPlanDocument(files: File[]): Promise<ImportResult> {
     const fd = new FormData();
     if (files[0]) fd.append('file', files[0], files[0].name);
-    return http.post<ImportResult>('/technical-plan/import-original-plan-document', fd).then((r) => r.data);
+    return http.post<ImportResult>('/technical-plan/import-original-plan-document', fd).then((r) => awaitJobResult<ImportResult>(r.data));
   },
 };

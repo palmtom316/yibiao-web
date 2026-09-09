@@ -1,3 +1,4 @@
+function isOpenCodeToolsAdapted(): boolean { return false; }
 // OpenCode Agent 运行时编排器（移植自桌面 client/electron/services/opencode/opencodeRuntimeService.cjs）。
 // 职责：进程级单例 sidecar 生命周期 + 单飞任务执行（runTask）+ 重试 + 活动看门狗 + 健康巡检 +
 // opencode.db 事件轮询（活动进度回传）+ 自检。
@@ -700,6 +701,7 @@ export function createOpenCodeRuntimeService(options: CreateAgentServiceOptions 
   }
 
   async function ensureStarted(): Promise<OpenCodeSidecar | null> {
+    if (!isOpenCodeToolsAdapted()) throw new Error('OpenCode 的命令工具尚未适配文件与处理边界，Web 版已停用；请使用受控 Pi 或普通生成');
     if (sidecar && phase !== 'unhealthy' && phase !== 'stopped' && phase !== 'closing') return sidecar;
     if (startPromise) return startPromise;
 
@@ -1202,7 +1204,7 @@ export function createOpenCodeRuntimeService(options: CreateAgentServiceOptions 
         maxRetries,
         retryAttempts,
         onSessionCreated: (session) => {
-          stopOpenCodeEventWatcher?.();
+          (stopOpenCodeEventWatcher as (() => void) | null)?.();
           stopOpenCodeEventWatcher = startOpenCodeEventWatcher(
             (session.id as string) || (session.sessionID as string) || (session.session_id as string) || '',
             taskActivity,
@@ -1271,7 +1273,7 @@ export function createOpenCodeRuntimeService(options: CreateAgentServiceOptions 
       writeTaskDiagnostics(taskId, diagnosticsPayload);
       throw annotateAgentError(error, diagnosticsPayload);
     } finally {
-      stopOpenCodeEventWatcher?.();
+      (stopOpenCodeEventWatcher as (() => void) | null)?.();
       stopOutputWatcher?.();
       stopWatchdog();
       stopParentAbort();

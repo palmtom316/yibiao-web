@@ -58,8 +58,8 @@ function PersonnelLibraryPage() {
   const handleDelete = async () => {
     if (!deleting) return;
     try {
-      await deleteMut.mutateAsync(deleting.id);
-      showToast('已删除人员', 'success');
+      await deleteMut.mutateAsync({ id: deleting.id, version: deleting.version });
+      showToast('已归档人员', 'success');
       setDeleting(null);
     } catch (err) {
       showToast(`删除失败：${err instanceof Error ? err.message : String(err)}`, 'error');
@@ -181,8 +181,8 @@ function PersonnelLibraryPage() {
       />
       <ConfirmDialog
         open={!!deleting}
-        title="删除人员"
-        description={`确认删除「${deleting?.name ?? ''}」？其全部证书及文件将被清除，此操作不可撤销。`}
+        title="归档人员"
+        description={`确认归档「${deleting?.name ?? ''}」？其全部证书及文件将被清除，此操作不可撤销。`}
         confirmText="删除"
         busy={deleteMut.isPending}
         onConfirm={() => void handleDelete()}

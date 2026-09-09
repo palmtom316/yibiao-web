@@ -1,160 +1,127 @@
-# 部署指南
+# 部署、迁移与恢复
 
-本文描述当前 Nginx + PM2 路径。PVE/Docker Compose 目标形态、数据卷和备份约定见 [Web 版改造计划](TRANSFORMATION-PLAN.md) 第 4、6、8 节；Docker 文件落地前仍以本文为准。
+实际验收见 [STATUS](implementation/STATUS.md)。P0 全部验收后才是可部署基础版；开发环境 Docker 启动不等于生产发布。第一期单公司、多人各自管理项目，app 必须单实例、单 Node 进程。
 
-## 部署方式建议
+## Docker Compose
 
-优先建议部署在企业本地服务器、内网虚拟机或受控私有云中。标书系统会处理招标文件、客户资料、资质证书、知识库素材、导出 Word/PDF 和 AI 生成内容，本地部署更便于控制数据边界、备份策略、访问来源和大模型出网策略。
+建议 PVE 内 Ubuntu/Debian VM。5 人试配起点为 4 vCPU、8 GB、80 GB 数据盘；根据解析页数、等待、RSS 与磁盘增长实测容量。固定 Node 22.23.2、npm 10.9.3、pnpm 10.17.1、PostgreSQL 16。基础镜像摘要写在 Dockerfile/Compose，运行目标带 tsx、Prisma Client、原生模块、LibreOffice 和中文字体；nginx 目标单独包含构建后的前端。
 
-如果必须部署在公网云平台虚拟机中，应将它按“互联网暴露业务系统”处理：只开放 HTTPS 入口，数据库和后端内部端口不得直接暴露；管理入口建议通过 VPN、堡垒机、云厂商零信任访问或固定来源 IP 安全组限制。
-
-## 环境要求
-
-基础软件：
-
-- Linux 服务器，建议 Ubuntu 22.04/24.04 LTS、Debian 12、Rocky Linux 9 或同等长期支持发行版；
-- Node.js 20 或更高版本；
-- npm 10 或更高版本；
-- pnpm 10/11；
-- PostgreSQL 15 或更高版本；
-- Nginx；
-- PM2；
-- LibreOffice 24.x，用于 Office/PDF 文档解析与转换。
-
-推荐硬件：
-
-| 使用规模 | CPU | 运行内存 | 存储空间 | 说明 |
-| --- | --- | --- | --- | --- |
-| 单人试用/功能验证 | 2 核 | 4 GB | 40 GB SSD | 适合功能验证、少量项目和低并发解析 |
-| 约 5 人共同协作 | 4 核 | 8 GB | 80 GB SSD 起 | 适合小团队日常使用，建议给 PostgreSQL、上传目录和备份目录预留独立空间 |
-| 约 10 人共同协作 | 8 核 | 16 GB | 160 GB SSD 起 | 适合多项目并行、更多文档解析和后台 AI 任务 |
-
-以上为起步建议，不是硬性上限。影响资源占用的主要因素包括：上传文件大小、Office/PDF 解析并发、知识库规模、后台 AI 任务并发、导出文件保留时间和备份保留周期。生产环境建议为数据库备份和上传文件备份额外预留空间，避免业务盘被备份文件占满。
-
-## 目录约定
-
-示例生产目录：
-
-```text
-/opt/openbidkit-yibiao-web/
-├── client/
-└── server/
-```
-
-## 后端
+1. 根 `.env.example` 复制为 `.env`，设置 URL-safe 随机 POSTGRES_PASSWORD、至少 32 位随机 JWT_SECRET。
+2. TLS_CERT_DIR 指向证书目录，包含 fullchain.pem/privkey.pem。部署管理员负责可信证书及续期，续期后 `docker compose exec nginx nginx -s reload`。只有 443 对外，证书可采用 DNS 验证。
+3. YIBIAO_PUBLIC_ORIGIN 为实际 HTTPS 站点。YIBIAO_INTERNAL_ENDPOINTS 填已批准的内部模型/企业网关 base URL，逗号分隔；空列表拒绝出网。YIBIAO_EXTERNAL_ENDPOINTS 还要求对应项目/共享域授权。公网图片与远程 Mermaid 不会作为自动回落路径。
+4. VITE_SOURCE_REPOSITORY_URL 指向当前修改版的可访问源码，BUILD_COMMIT 记录实际构建版本。前端变量为构建参数，修改后重建 nginx，不能只改 app 环境。
 
 ```bash
-cd /opt/openbidkit-yibiao-web/server
+docker compose config --quiet
+docker compose build
+docker compose up -d --wait
+docker compose ps
+```
+
+启动顺序：PostgreSQL 健康 → migrate 成功退出 → app 健康 → nginx。DB/app 没有宿主端口；app 非 root、根目录只读，仅 /data 与临时目录可写，不挂 Docker socket。pgdata/appdata 数据卷必须一起备份。禁止 `--scale app=2`、PM2 cluster 或多进程启动。
+
+/health/live 检查进程；/health/ready 检查数据库与数据目录，显示队列状态。nginx 不公开探针。模型未配置不阻碍管理员登录。首次 admin/admin 登录必须设置至少 12 位、含大小写/数字/特殊字符的新密码。初始化不覆盖已有密码、提示词或文档。
+
+每文件 100 MiB、每批最多 10 文件且总计 200 MiB；客户端/Fastify 校验，nginx 为 multipart 预留 1 MiB 开销。解析/导出分别默认 1 活动任务、最多 24 等待任务。部署方按实测容量调整资源，不以模型并发限制代替本地队列。
+
+## 迁移与文档初始化
+
+空库使用以下命令；生产禁止 db push、migrate reset、自动接受数据丢失及回写已发布 migration。
+
+```bash
+cd server
 pnpm install --frozen-lockfile
 pnpm exec prisma generate
-pnpm exec prisma db push
-pnpm run db:seed
-pnpm exec tsx prisma/seed-docs.ts
+pnpm run db:initialize
 ```
 
-将 `server/.env.example` 复制为未跟踪的 `server/.env`，设置数据库和 JWT 配置。生产 `JWT_SECRET` 至少使用 32 个随机字符。
+初始化先执行 `prisma migrate deploy`，成功才执行管理员、提示词、文档缺失项 seed；失败返回非零，Compose 不启动 app。
 
-`pnpm run db:seed` 负责默认管理员和提示词默认值。`pnpm exec tsx prisma/seed-docs.ts` 负责把内置使用文档写入数据库；它是幂等脚本，重复执行会更新文档标题与正文，但保留管理员手动排序。
-
-复制 `deploy/pm2/ecosystem.config.example.cjs` 到部署目录并按实际路径检查后启动：
+历史 db push 数据库先停止写入、备份同批 DB/文件，在副本验证恢复和 schema 一致后执行：
 
 ```bash
-pm2 start deploy/pm2/ecosystem.config.example.cjs
-pm2 save
+pnpm run db:baseline
+pnpm run db:baseline --apply --backup-manifest /受保护目录/manifest.json
+pnpm run db:initialize
 ```
 
-## 前端
+首次命令只比较当前数据库与 prisma/baseline.prisma，有 drift 就拒绝。第二次要求备份 manifest 含 DB/文件 hash 以及实际完成副本核查后登记的 validatedOnCopy=true；只标记 202609080001_baseline 已应用，再由 deploy 应用兼容增量迁移。
+
+文档 seed 只补缺失 ID，保留已有标题、正文、排序。内容升级先查看版本化差异报告，只有与已登记旧版本相同且无管理员修改的正文才可更新：
 
 ```bash
-cd /opt/openbidkit-yibiao-web/client
-npm ci
-npm run build
+pnpm run db:docs:update --version 2026-09-08
+pnpm run db:docs:update --version 2026-09-08 --apply
 ```
 
-将 `deploy/nginx/yibiao-web.conf.example` 安装到 Nginx 站点目录并替换示例域名。配置检查通过后 reload：
+## 任务与故障
+
+关页不取消后台任务；SSE 重连主动取项目权威快照，不依赖事件历史重放。权限变更后旧令牌/连接不能持续读取资料。
+
+重启将正文任务置暂停，可人工继续；其他分析/目录/事实/检查及知识抽取明确中断、可重试，不承诺所有任务自动续跑。SIGTERM 停止接新任务、关闭 SSE、请求正文暂停并停止 Agent，35 秒兜底退出；Compose 留 45 秒宽限。强制终止后在下次启动恢复状态。
+
+## 同批备份与恢复
+
+备份目标应为独立磁盘或远端挂载；同 VM 目录仅用于开发演练。生产建议每日备份，保留 7 日份与 4 周份，升级前另备份。目标 RPO ≤ 24 小时、RTO ≤ 2 小时，实际是否达到以演练为准。目录 0700、文件限权，配置含密钥，应由部署方加密保管。
+
+仓库根目录运行：
 
 ```bash
-nginx -t
-systemctl reload nginx
+python3 deploy/backup/backup.py --env-file .env --destination /独立磁盘/yibiao
 ```
 
-SSE 路由必须关闭 `proxy_buffering`，否则后台任务进度会被缓存。
+脚本停止 nginx/app，确认进程与后台写任务结束，再生成同一 backupId 的 database.dump、data.tar.gz、受保护配置、镜像/迁移信息和 SHA-256 manifest，最后恢复原先运行服务。没有完成 manifest 的失败目录不可恢复。
 
-## 通用大模型互通
+保留当前环境，向另一个空环境恢复：
 
-系统通过服务端配置连接文本模型、生图模型和 Agent 运行时。管理员在 Web 端配置服务商、API Key、模型名称和 Base URL 后，服务端负责发起模型请求，浏览器端不保存模型密钥。
+```bash
+python3 deploy/backup/restore.py --env-file /受保护目录/restore.env --project-name yibiao-restore --backup /备份目录/backupId
+```
 
-常见互通方式：
+恢复验证 hash，拒绝不安全 tar 路径、链接和非空目标库/目录。恢复后 app 保持停止，核对镜像兼容、用户/自定义文档/正文及所有原件 hash，再启动兼容镜像并重新导出 Word。数据库与文件必须来自同一 backupId。不兼容迁移须恢复整批数据；只回退应用前先证明旧镜像兼容新 schema。
 
-- 公网通用大模型：直接配置模型厂商的 API 地址和密钥，部署服务器需要允许访问对应 API 域名；
-- 企业统一模型网关：Base URL 指向企业内部 OpenAI-compatible 网关，便于统一审计、限流、密钥轮换和模型路由；
-- 本地或私有化模型：Base URL 指向内网推理服务，数据流转范围更可控，但需要自行评估模型质量、上下文长度和并发能力。
+## PM2 路径
 
-安全建议：
+Debian/Ubuntu 安装同版本 Node/包管理器、PostgreSQL、LibreOffice、中文字体，以 Nginx 提供 HTTPS。后端执行上述初始化，前端执行 npm ci/typecheck/build；按实际目录修改 deploy/pm2/ecosystem.config.example.cjs。示例固定 instances=1/fork/45 秒退出等待，使用项目内 tsx，后端仅绑定回环地址。Nginx 示例还需配置可信 TLS，SSE 保持无缓冲。
 
-- 只在服务端保存 API Key，不要写入前端环境变量、Markdown 文档、截图或日志；
-- 使用公网模型前，确认招标文件、客户资料、资质证书和生成内容是否允许出网；
-- 通过代理或网关统一控制模型出口，便于审计和密钥轮换；
-- 模型测试失败时只记录错误摘要，不输出完整请求头、API Key 或客户原文。
+PM2 备份先 stop 并确认后台进程退出，然后备份数据库、YIBIAO_DATA_DIR 和配置；只冻结 HTTP 写请求不足以保证一致性。
 
-## 首次管理员强制改密
+## 验收与发布
 
-全新安装必须按以下顺序完成，随后才能将服务暴露到不受信任的网络：
+开发隔离覆盖文件 deploy/test/compose.override.yml 仅绑定回环 54443，使用独立 Compose 项目名/卷和合成凭据：
 
-1. 在 `server/` 目录依次运行 Prisma generate、schema push、默认数据 seed 和使用文档 seed；
-2. 启动服务并打开 Web 登录页；
-3. 使用 `admin/admin` 登录一次；
-4. 设置至少 12 位、且同时包含大写字母、小写字母、数字和特殊字符的新密码；
-5. 确认系统进入应用，并确认 `admin/admin` 已无法再次登录；
-6. 在将服务暴露到不受信任的网络前完成以上步骤。
+```bash
+docker compose -p yibiao-transform --env-file /tmp/yibiao-transform.env -f docker-compose.yml -f deploy/test/compose.override.yml config --quiet
+```
 
-重复运行 seed 不会重置已存在管理员的密码。
+真实数据库测试仅允许本机 yibiao_test* 数据库，以 TEST_DATABASE_URL 指定，运行 pnpm test:integration。完整命令见 CONTRIBUTING，未完成的真实模型/OCR/模板/恢复验收不能记作 DONE。
 
-## 默认品牌与主题
+监测磁盘、队列、失败率、备份失败和证书到期。保留 LICENSE/NOTICE、上游归属和当前版本源码入口；不发布密钥、dump、证照、客户原文、日志或运行数据。后续新增数据布局与回退步骤记在各任务验证报告。
 
-- 全新安装默认系统名称为“易标投标工具箱web版”。
-- 管理员可在“设置 - 基本设置”中修改系统名称和系统 Logo。
-- 已经部署过的系统如果数据库中已有自定义系统名称，升级代码不会自动覆盖该名称；需要管理员在设置中手动修改。
-- 登录后的顶栏可切换浅色模式和 `soc-dark` 深色模式，选择保存在浏览器本地。
 
-## 云平台虚拟机安全建议
+## 可选增强与文件格式
 
-如部署在云服务器或云平台虚拟机中，建议至少完成以下配置：
+基础 `app` 目标仅需要 Node/LibreOffice/字体。需要 Word 模板字段和离线图表时在独立 override 中设置 app.build.target=app-enhanced 后重建 app；其 .NET 10 helper 自包含，Chromium 与字体版本随镜像固定。不要给 app 挂 Docker socket 或开启任意命令工具。`deploy/test/compose.enhanced.yml` 只示范目标覆盖。
 
-1. **网络暴露面**
-   - 仅开放 80/443，且 80 只用于跳转 HTTPS；
-   - 不开放 PostgreSQL、PM2 后端端口、Redis/队列端口或其他内部服务端口；
-   - SSH/RDP 管理端口限制固定来源 IP，优先使用 VPN、堡垒机或零信任访问。
+- `YIBIAO_OUTLINE_V2=true` 默认启用可用 Pi 的 V2；设 false 并重新创建 app 回到普通目录流程。无模型配置仍能登录和维护资料。
+- `YIBIAO_ENABLE_LOCAL_RENDER=true`、`YIBIAO_CHROMIUM_PATH`、`YIBIAO_OPENXML_HELPER` 在增强目标内置。禁用渲染后正文/原图保留，不自动走公网服务。
+- 模型、MinerU 和生图端点/密钥由管理员设置；只有已批准端点会通过请求校验。项目处理开关与共享知识策略分别维护；含共享资料的项目需要同时批准两域。
+- 模板任务先抽取章节和扫描待填位置；字段建议需要模型且遵循项目出口，字段最终由人工确认。没有 Word 原件/工具时显示降级原因，不阻断普通目录。
+- 配图计划每次最多 60 张，串行生成；渲染队列最多 12 等待，20 秒截图期限，最多 1600×2200 设计像素、2 倍截图。失败保留 HTML 图源与正文。
 
-2. **传输与账号**
-   - 配置可信 TLS 证书；
-   - 使用强随机 `JWT_SECRET`；
-   - PostgreSQL 使用独立业务账号和最小权限；
-   - 首次上线前完成 `admin/admin` 强制改密。
+数据格式版本 1 的新增目录为 `/data/<projectId>/workspace/documents/<sourceId>/`、`references/<snapshotId>/`、`generated-images/`、`illustrations/`、`openxml/<artifactId>/`、`business-packages/`。共享原件在 `/data/shared/document-sources/<documentId>/<sourceId>/`。数据库持有相对路径/文件 ID。新迁移截至 `202609080006_snapshot_images`，仍保留旧表与旧 Markdown 可读性；更新 schema 后须重新生成 Prisma Client。
 
-3. **文件与备份**
-   - `.env`、数据库备份、上传文件、导出文件和日志不进入 Git 仓库；
-   - 定期备份 PostgreSQL 和上传目录；
-   - 备份文件建议加密保存，并定期做恢复演练。
+项目引用在确认时复制，后续修改/删除资料库不修改副本。归档不等于撤销引用许可；撤销通过独立记录阻止新导出。不要人工清理 references、source/parse 或已发布的图片目录。未 ready 的失败产物可以按任务重试；只清理未提交 staging，不删已确认版本。
 
-4. **模型与出网**
-   - 接入公网大模型时，建议通过固定出口、代理网关或企业统一模型网关；
-   - 定期轮换模型 API Key；
-   - 对包含客户敏感信息的项目，优先使用本地模型或企业许可的私有模型服务。
+## 可复现开发演练
 
-## 更新
+所有 `deploy/test/*` 只用于独立回环测试实例。`compose.faults.yml` 的 fixture-model 是合成 HTTP 响应与故障控制器，不是真实模型，不得生产启用；端口只绑定 127.0.0.1。脚本 `server/src/verification/faults.ts` 会切换该测试实例的模型配置、启动两个合成项目、断开 SSE、SIGTERM/SIGKILL 并重建 app。必须显式 `YIBIAO_TEST_SCOPE=yibiao-transform`。
 
-1. 备份 PostgreSQL 和运行数据目录；
-2. 更新源码；
-3. 安装依赖；
-4. 执行 `prisma generate` 与 `prisma db push`；
-5. 执行 `pnpm run db:seed` 和 `pnpm exec tsx prisma/seed-docs.ts`；
-6. 重新构建前端；
-7. `pm2 restart openbidkit-yibiao-web --update-env`；
-8. 验证基本设置接口、登录、权限菜单、使用文档、主题切换和静态资源哈希。
+备份脚本的 manifest 包含逐文件 hash 与实际耗时；恢复脚本验证整个备份和恢复后的每个 /data 文件，输出耗时后保持 app 停止。演练结果、镜像 ID、备份 ID 和回退证据见 P0-05 验证报告。真实客户样本、企业网关/MinerU 的批准与凭据不能用合成 fixture 代替。
 
-不要把真实 `.env`、数据库备份或上传文件放入 Git 仓库。
 
-## 发布范围
+### 镜像保留与离线恢复补充
 
-上传 GitHub 的内容应包含源码、Prisma schema、内置使用文档、部署示例、LICENSE、NOTICE、归属和 AGPL 合规说明。不要上传生产数据、测试数据、密钥、备份、日志、客户文件、`client/dist`、`node_modules` 或服务端运行数据目录。
+备份会为实际 app/migrate/nginx/postgres 镜像创建独立 `yibiao-backup:<backupId小写>-<service>` 标签，避免覆盖 latest 后失去旧版本。标签与准确 ID 写入受保护 images.json。需要离线迁移时，给 backup.py 加 `--save-images`，同时生成并校验 images.tar；本机合成归档已执行 docker load 验证。
+
+restore.py 发现已校验 images.tar 时先加载镜像，但仍保持恢复后的 app 停止。跨主机离线恢复须先准备 override，让 postgres/migrate/app/nginx 分别使用 images.json 中的 backupTag（build 设 `!reset null`，pull_policy 设 never），避免启动时寻找另一版本的 latest 或未缓存公共标签。应用回退时同样禁止隐式重新 build/pull 替代缺失旧镜像。丢失镜像时应恢复对应源码/依赖后明确重新验收，不能把新构建冒充旧镜像。

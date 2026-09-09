@@ -1,3 +1,4 @@
+import PerformancePage from '../features/performance/PerformancePage';
 import { useEffect, useState } from 'react';
 import type { SectionId } from '../shared/types/navigation';
 import { getAppMenuItemById } from './menuConfig';
@@ -83,6 +84,8 @@ function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onSect
       return <AssetLibraryPage library="tool" />;
     case 'company-qualification-library':
       return <AssetLibraryPage library="company" />;
+    case 'performance-records':
+      return <PerformancePage />;
     case 'personnel-qualification-library':
       return <PersonnelLibraryPage />;
     case 'duplicate-check':

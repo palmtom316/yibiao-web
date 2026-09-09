@@ -128,8 +128,8 @@ export interface ContentKnowledgeItem {
 }
 
 export interface ContentKnowledgeBaseService {
-  getOutlineReferences?(documentIds: string[]): { items: Array<{ id: string; title: string; resume: string }> };
-  readItems?(documentId: string): ContentKnowledgeItem[] | { id?: string; content?: string }[];
+  getOutlineReferences?(documentIds: string[]): { items: Array<{ id: string; title: string; resume: string }> } | Promise<{ items: Array<{ id: string; title: string; resume: string }> }>;
+  readItems?(documentId: string): ContentKnowledgeItem[] | { id?: string; content?: string }[] | Promise<Array<{ id?: string; content?: string }>>;
 }
 
 export interface OutlineExpansionAddition {
@@ -2921,11 +2921,11 @@ export function normalizeReferenceDocumentIds(storedPlan: Record<string, unknown
     : [];
 }
 
-export function loadContentKnowledgeItems(
+export async function loadContentKnowledgeItems(
   knowledgeBaseService: ContentKnowledgeBaseService | null | undefined,
   documentIds: string[],
   log: LogFn,
-): ContentKnowledgeItem[] {
+): Promise<ContentKnowledgeItem[]> {
   if (!documentIds.length) {
     log('本次正文编排未选择参考知识库。');
     return [];
@@ -2936,7 +2936,7 @@ export function loadContentKnowledgeItems(
   }
 
   try {
-    const result = knowledgeBaseService.getOutlineReferences(documentIds);
+    const result = await knowledgeBaseService.getOutlineReferences(documentIds);
     const items = Array.isArray(result?.items) ? result.items.map((item) => ({
       id: String(item?.id || '').trim(),
       title: String(item?.title || '').trim(),
@@ -2950,11 +2950,11 @@ export function loadContentKnowledgeItems(
   }
 }
 
-export function loadContentKnowledgeContentMap(
+export async function loadContentKnowledgeContentMap(
   knowledgeBaseService: ContentKnowledgeBaseService | null | undefined,
   documentIds: string[],
   log: LogFn,
-): Map<string, { content: string }> {
+): Promise<Map<string, { content: string }>> {
   const map = new Map<string, { content: string }>();
   if (!documentIds.length || !knowledgeBaseService?.readItems) {
     return map;
@@ -2962,7 +2962,7 @@ export function loadContentKnowledgeContentMap(
 
   for (const documentId of documentIds) {
     try {
-      const items = knowledgeBaseService.readItems(documentId);
+      const items = await knowledgeBaseService.readItems(documentId);
       for (const item of Array.isArray(items) ? items : []) {
         const i = item as { id?: string; content?: string };
         const itemId = String(i?.id || '').trim();
@@ -3022,6 +3022,7 @@ export function updateOutlineItemContent(items: OutlineItem[] | null | undefined
 
 export function clearOutlineContent(items: OutlineItem[] | null | undefined): OutlineItem[] {
   return (items || []).map((item) => {
+    if (item.manualLocked === true) return { ...item };
     const { content, children, ...rest } = item;
     const normalizedChildren = normalizeChildren(item);
     return normalizedChildren.length

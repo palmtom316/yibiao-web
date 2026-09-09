@@ -28,6 +28,7 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
   'tool-asset-library': ArchiveIcon,
   'company-qualification-library': ShieldIcon,
   'personnel-qualification-library': BriefcaseIcon,
+  'performance-records': BriefcaseIcon,
   'bid-check': BidCheckIcon,
   'duplicate-check': CompareIcon,
   'rejection-check': ShieldIcon,

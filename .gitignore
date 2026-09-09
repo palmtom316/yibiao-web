@@ -51,3 +51,7 @@ temp/
 Thumbs.db
 .idea/
 .vscode/settings.json
+
+# Python operational script caches
+__pycache__/
+*.pyc

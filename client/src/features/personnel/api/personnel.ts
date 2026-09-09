@@ -1,3 +1,4 @@
+import { appendLedgerFields, type LedgerFields } from '../../../shared/types/ledger';
 // 人员资质库 API 客户端（一人多证）：PersonnelProfile 1→N Certificate。
 // 对标 assetLibrary.ts：react-query + shared/api/http。公司共享（无 userId）。
 // 证书文件经 GET .../certificates/:certId/files/:fileId 取回（Bearer），预览用 axios blob → objectURL。
@@ -8,7 +9,8 @@ import type { AssetFileMeta } from '../../asset-library/api/assetLibrary';
 
 export type ExpiryFilter = 'active' | 'expiring' | 'expired';
 
-export interface PersonnelCertificate {
+export interface PersonnelCertificate extends LedgerFields {
+  version: number;
   id: string;
   profileId: string;
   certName: string;
@@ -22,6 +24,7 @@ export interface PersonnelCertificate {
 }
 
 export interface PersonnelProfile {
+  version: number;
   id: string;
   name: string;
   department: string;
@@ -54,6 +57,7 @@ export interface PersonnelListResponse {
 }
 
 export interface ProfileInput {
+  version?: number;
   name: string;
   department?: string;
   position?: string;
@@ -62,7 +66,7 @@ export interface ProfileInput {
   tags?: string[];
 }
 
-export interface CertificateInput {
+export interface CertificateInput extends LedgerFields {
   certName: string;
   certType?: string;
   expiryDate?: string | null;
@@ -74,6 +78,7 @@ export interface CertificateInput {
 
 function buildProfileForm(input: ProfileInput): FormData {
   const form = new FormData();
+  appendLedgerFields(form, input);
   form.append('name', input.name);
   if (input.department !== undefined) form.append('department', input.department);
   if (input.position !== undefined) form.append('position', input.position);
@@ -85,6 +90,7 @@ function buildProfileForm(input: ProfileInput): FormData {
 
 function buildCertForm(input: CertificateInput): FormData {
   const form = new FormData();
+  appendLedgerFields(form, input);
   form.append('certName', input.certName);
   if (input.certType !== undefined) form.append('certType', input.certType);
   if (input.expiryDate !== undefined) form.append('expiryDate', input.expiryDate ?? '');
@@ -167,7 +173,7 @@ export function useUpdateProfile() {
 export function useDeleteProfile() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => http.delete(`/personnel/${id}`),
+    mutationFn: async ({ id, version }: { id: string; version: number }) => http.delete(`/personnel/${id}`, { params: { version } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['personnel'] });
       qc.invalidateQueries({ queryKey: ['personnel', 'expiring'] });
@@ -214,7 +220,7 @@ export function useUpdateCertificate(profileId: string) {
 export function useDeleteCertificate(profileId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (certId: string) => http.delete(`/personnel/${profileId}/certificates/${certId}`),
+    mutationFn: async ({ certId, version }: { certId: string; version: number }) => http.delete(`/personnel/${profileId}/certificates/${certId}`, { params: { version } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['personnel'] });
       qc.invalidateQueries({ queryKey: ['personnel', 'expiring'] });

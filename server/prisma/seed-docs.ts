@@ -1,6 +1,6 @@
 // 一次性种子：把 13 篇文档 md 导入 docs_articles。
 // 运行：在 server 目录执行 npx tsx prisma/seed-docs.ts
-// 幂等：upsert by id。update 只刷 title+content，不动 sortOrder（保留管理员的手动排序）。
+// 初始化只补缺失文档；已有标题、正文、排序和管理员编辑全部保留。
 //   id 固定：usage-01..08 / config-01..04 / faq；管理员新建的走 cuid。
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -27,25 +27,27 @@ const SEED: { id: string; section: Section; title: string; file: string; sortOrd
   { id: 'config-04', section: 'config', title: '智能体配置', file: '配置/04-智能体配置.md', sortOrder: 4 },
 ];
 
+export function bundledDocs() {
+  return SEED.map(({ file, ...item }) => ({ ...item, content: fs.readFileSync(path.join(SEED_DIR, file), 'utf8') }));
+}
+
+export async function seedDocs(prisma: PrismaClient): Promise<void> {
+  for (const item of bundledDocs()) {
+    await prisma.docsArticle.upsert({ where: { id: item.id }, create: item, update: {} });
+  }
+}
+
 async function main(): Promise<void> {
   const prisma = new PrismaClient();
   try {
-    for (const s of SEED) {
-      const content = fs.readFileSync(path.join(SEED_DIR, s.file), 'utf8');
-      await prisma.docsArticle.upsert({
-        where: { id: s.id },
-        create: { id: s.id, section: s.section, title: s.title, content, sortOrder: s.sortOrder },
-        update: { section: s.section, title: s.title, content },
-      });
-      console.log('seeded', s.id, s.title);
-    }
+    await seedDocs(prisma);
     console.log('done:', SEED.length, 'articles');
   } finally {
     await prisma.$disconnect();
   }
 }
 
-main().catch((e) => {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((e) => {
   console.error(e);
   process.exit(1);
 });

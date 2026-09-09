@@ -1,3 +1,5 @@
+import ArchivedKnowledgePanel from '../ArchivedKnowledgePanel';
+import KnowledgeSearchPanel from '../KnowledgeSearchPanel';
 import { Profiler, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, useDocumentParseNotice, useToast } from '../../../shared/ui';
@@ -346,6 +348,7 @@ function KnowledgeBasePage() {
   useEffect(() => {
     void loadInitialData();
     window.addEventListener('focus', loadDeveloperMode);
+    window.addEventListener('yibiao:sse-reconnected', loadInitialData);
     document.addEventListener('visibilitychange', loadDeveloperMode);
     const unsubscribe = window.yibiao?.knowledgeBase.onEvent(({ document }) => {
       const parseMessage = document.error || document.message;
@@ -366,6 +369,7 @@ function KnowledgeBasePage() {
     });
     return () => {
       window.removeEventListener('focus', loadDeveloperMode);
+      window.removeEventListener('yibiao:sse-reconnected', loadInitialData);
       document.removeEventListener('visibilitychange', loadDeveloperMode);
       unsubscribe?.();
     };
@@ -693,7 +697,7 @@ function KnowledgeBasePage() {
       return;
     }
     const count = documentsByFolder.get(folderId)?.length || 0;
-    if (!window.confirm(`确定删除文件夹“${folderName}”吗？其中 ${count} 个文档也会一起删除。`)) return;
+    if (!window.confirm(`确定删除文件夹“${folderName}”吗？其中 ${count} 个文档将归档，原件和历史引用保留。`)) return;
 
     try {
       const result = await window.yibiao?.knowledgeBase.deleteFolder(folderId);
@@ -715,15 +719,15 @@ function KnowledgeBasePage() {
       showToast('知识库迁移中，请稍候', 'info');
       return;
     }
-    if (!window.confirm(`确定删除文档“${document.file_name}”吗？`)) return;
+    if (!window.confirm(`归档文档“${document.file_name}”吗？原件和历史引用将保留。`)) return;
 
     try {
-      const result = await window.yibiao?.knowledgeBase.deleteDocument(document.id);
+      const result = await window.yibiao?.knowledgeBase.deleteDocument(document.id, document.version);
       setIndex((prev) => ({ ...prev, documents: prev.documents.filter((item) => item.id !== document.id) }));
       setViewer((prev) => (prev?.document.id === document.id ? null : prev));
-      showToast(result?.message || '文档已删除', 'success');
+      showToast(result?.message || '文档已归档', 'success');
     } catch (error) {
-      showToast(error instanceof Error ? error.message : '删除文档失败', 'error');
+      showToast(error instanceof Error ? error.message : '归档文档失败', 'error');
     }
   };
 
@@ -954,6 +958,7 @@ function KnowledgeBasePage() {
   return (
     <>
       <div className="page-stack knowledge-page">
+        <KnowledgeSearchPanel /><ArchivedKnowledgePanel />
         <section className="knowledge-workspace-bar">
         <div className="knowledge-breadcrumb">
           <span>知识库</span>
@@ -1112,7 +1117,7 @@ function KnowledgeBasePage() {
                           {retrying ? '重试中...' : '重试'}
                         </button>
                       )}
-                      <button type="button" className="is-danger" onClick={() => void deleteDocument(document)} disabled={migrationRunning}>删除</button>
+                      <button type="button" className="is-danger" onClick={() => void deleteDocument(document)} disabled={migrationRunning}>归档</button>
                     </div>
                   </article>
                 );

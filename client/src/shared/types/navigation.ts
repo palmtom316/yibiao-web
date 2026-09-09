@@ -11,6 +11,7 @@ export type SectionId =
   | 'tool-asset-library'
   | 'company-qualification-library'
   | 'personnel-qualification-library'
+  | 'performance-records'
   | 'bid-check'
   | 'duplicate-check'
   | 'rejection-check'

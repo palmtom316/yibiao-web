@@ -64,7 +64,7 @@ function AssetLibraryPage({ library }: AssetLibraryPageProps) {
   const handleDelete = async () => {
     if (!deleting) return;
     try {
-      await deleteMut.mutateAsync(deleting.id);
+      await deleteMut.mutateAsync({ id: deleting.id, version: deleting.version });
       showToast('已删除', 'success');
       setDeleting(null);
     } catch (err) {
@@ -174,8 +174,8 @@ function AssetLibraryPage({ library }: AssetLibraryPageProps) {
       />
       <ConfirmDialog
         open={!!deleting}
-        title="删除条目"
-        description={`确认删除「${deleting?.name ?? ''}」？其全部文件将被清除，此操作不可撤销。`}
+        title="归档条目"
+        description={`确认归档「${deleting?.name ?? ''}」？其全部文件将被清除，此操作不可撤销。`}
         confirmText="删除"
         busy={deleteMut.isPending}
         onConfirm={() => void handleDelete()}

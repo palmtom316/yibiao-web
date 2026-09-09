@@ -159,8 +159,9 @@ export async function requestJson(
     if (options.dispatcher) {
       fetchOptions.dispatcher = options.dispatcher;
     }
-    const fetchImpl = options.dispatcher ? undiciFetch : fetch;
-    response = (await fetchImpl(`${server.baseUrl}${routePath}`, fetchOptions as RequestInit)) as Response;
+    response = options.dispatcher
+      ? await undiciFetch(`${server.baseUrl}${routePath}`, { ...fetchOptions, body: fetchOptions.body as string | undefined }) as unknown as Response
+      : await fetch(`${server.baseUrl}${routePath}`, fetchOptions);
 
     const data = await readJsonResponse(response, `OpenCode 请求失败：${routePath}`);
     emitHttpActivity(options.onActivity, {

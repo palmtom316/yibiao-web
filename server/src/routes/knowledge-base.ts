@@ -1,3 +1,9 @@
+import type { JobService } from '../jobs/service';
+import { assertSourceUnlinked } from '../ledger/lifecycle';
+import { ApiError } from '../security/access';
+import { searchKnowledge } from '../knowledge-base/search';
+import { bindConfigScope, withConfigScope } from '../security/processing';
+import { createRequireProject } from '../auth/middleware';
 // 知识库命名空间路由（受保护、公司共享——不按 userId 过滤，但必须登录）。
 // 纯 DB CRUD + 读路径 + P4 上传/重试管线（步骤 1-3）+ P6 LLM 抽取/匹配（步骤 4-9）。
 // 抽取为 fire-and-forget 后台任务：upload/retry 在 prepareDocument 成功后触发，
@@ -27,14 +33,30 @@ export async function knowledgeBaseRoutes(app: FastifyInstance, _opts: FastifyPl
   const bodyOf = (req: FastifyRequest) => (req as FastifyRequest & { body: unknown }).body as Record<string, unknown> | undefined;
   const userOf = (req: FastifyRequest) => (req as FastifyRequest & { user: JwtPayload }).user;
 
+  app.addHook('preHandler', async (req, reply) => {
+    if (req.headers['x-project-id']) await createRequireProject(prisma)(req, reply);
+  });
+
   // fire-and-forget 抽取：失败已在 runKnowledgeExtraction 内部落 status=error + 推事件，
   // 此处 catch 仅防未预期 rejection 冒泡。config 复用触发用户的合并配置（含真实 key）。
   const kickoffExtraction = (documentId: string, projectId: string, config: Record<string, unknown>, batchSize?: number, force?: boolean): void => {
-    void runKnowledgeExtraction({ store, aiService, config, projectId, documentId, batchSize, force }).catch(() => undefined);
+    void withConfigScope(config, () => runKnowledgeExtraction({ store, aiService, config, projectId, documentId, batchSize, force })).catch(() => undefined);
   };
 
+  const jobs = (app as unknown as { jobs: JobService }).jobs;
+  jobs.register('knowledge-prepare', async (job) => {
+    const config = bindConfigScope(await buildMerged(prisma, job.userId), { kind: 'shared', userId: job.userId });
+    return withConfigScope(config, async () => {
+      const result = (job.input as any).retry ? await retryDocument(store, job.knowledgeDocumentId!, job.userId) : await prepareDocument(store, job.knowledgeDocumentId!, job.userId);
+      if (!result.success) throw new ApiError(422, result.document?.error || '文档解析失败，原件保留');
+      kickoffExtraction(job.knowledgeDocumentId!, String((job.input as any).eventProjectId || ''), config);
+      return { ...result, message: '原件解析完成，知识抽取在后台继续' };
+    });
+  });
+
   // GET /knowledge-base → { folders, documents }（内部先 recoverInterruptedDocuments）
-  app.get('/knowledge-base', async () => store.list());
+  app.get('/knowledge-base', async (req) => store.list((req.query as any).archived === 'true'));
+  app.get('/knowledge-base/search', (req) => { const query = req.query as { keyword?: string; page?: string }; return searchKnowledge(prisma, query.keyword, query.page); });
 
   // POST /knowledge-base/folders { name } → FolderDto
   app.post('/knowledge-base/folders', async (req) => store.createFolder(bodyOf(req)?.name));
@@ -58,13 +80,13 @@ export async function knowledgeBaseRoutes(app: FastifyInstance, _opts: FastifyPl
   // DELETE /knowledge-base/folders/:folderId → { success, message }（级联清子表）
   app.delete('/knowledge-base/folders/:folderId', async (req) => {
     const { folderId } = (req as FastifyRequest & { params: { folderId: string } }).params;
-    return store.deleteFolder(folderId);
+    return store.deleteFolder(folderId, userOf(req).id);
   });
 
   // DELETE /knowledge-base/documents/:documentId → { success, message }（级联清子表）
   app.delete('/knowledge-base/documents/:documentId', async (req) => {
     const { documentId } = (req as FastifyRequest & { params: { documentId: string } }).params;
-    return store.deleteDocument(documentId);
+    return store.deleteDocument(documentId, (req.query as any).version, userOf(req).id, (req.query as any).permanent === 'true');
   });
 
   // POST /knowledge-base/documents/move { documentId, targetFolderId, targetDocumentId?, position? } → { success, message, index, document }
@@ -116,7 +138,7 @@ export async function knowledgeBaseRoutes(app: FastifyInstance, _opts: FastifyPl
 
     const user = userOf(req);
     const projectId = getProjectIdHeader(req) ?? '';
-    const config = await buildMerged(prisma, user.id);
+    const config = bindConfigScope(await buildMerged(prisma, user.id), { kind: 'shared', userId: user.id });
 
     const collected = await collectRawUploads(req);
     const created: Awaited<ReturnType<typeof prepareDocument>>['document'][] = [];
@@ -128,21 +150,12 @@ export async function knowledgeBaseRoutes(app: FastifyInstance, _opts: FastifyPl
       }
       try {
         const fileName = path.basename(upload.fileName) || `source${upload.ext}`;
-        const { document } = await ingestUpload(store, folderId, fileName, upload.ext, upload.buffer);
+        const { document } = await ingestUpload(store, folderId, fileName, upload.ext, upload.buffer, user.id);
         created.push(document);
         // 文档解析（copy/convert/build_blocks）对大 docx/pdf 可能耗时数十秒，同步等待会超过客户端
         // 30s 超时。与 LLM 抽取一致改为后台推进：先推一条 converting 进度让前端即时反馈，
         // prepareDocument 跑完三步后接 fire-and-forget 抽取；全程进度经 EventBus 'kb-document' 通道推送。
-        void (async () => {
-          await emitProgress(store, projectId, document.id, {
-            status: 'converting',
-            progress: 10,
-            message: '正在解析文档',
-            error: null,
-          });
-          const result = await prepareDocument(store, document.id);
-          if (result.success) kickoffExtraction(document.id, projectId, config);
-        })().catch(() => undefined);
+        await jobs.start({ kind: 'knowledge-prepare', userId: user.id, knowledgeDocumentId: document.id, input: { eventProjectId: projectId } });
       } catch (error) {
         // ingestUpload 失败（写盘/建库）；记录后继续处理下一个
         const message = error instanceof Error ? error.message : String(error);
@@ -167,15 +180,10 @@ export async function knowledgeBaseRoutes(app: FastifyInstance, _opts: FastifyPl
 
   // POST /knowledge-base/documents/:documentId/retry → { success, message, document }（移植自桌面 retryDocument）。
   // 仅 error 态可重试；重跑 prepareDocument（幂等，跳过已完成步骤），成功后 fire-and-forget 抽取。
-  app.post('/knowledge-base/documents/:documentId/retry', async (req) => {
-    const { documentId } = (req as FastifyRequest & { params: { documentId: string } }).params;
-    const result = await retryDocument(store, documentId);
-    if (result.success) {
-      const user = userOf(req);
-      const config = await buildMerged(prisma, user.id);
-      kickoffExtraction(documentId, getProjectIdHeader(req) ?? '', config);
-    }
-    return result;
+  app.post('/knowledge-base/documents/:documentId/retry', async (req, reply) => {
+    const { documentId } = req.params as { documentId: string };
+    await assertSourceUnlinked(prisma, 'knowledge-document', documentId);
+    return reply.code(202).send(await jobs.start({ kind: 'knowledge-prepare', userId: userOf(req).id, knowledgeDocumentId: documentId, input: { retry: true, eventProjectId: getProjectIdHeader(req) || '' } }));
   });
 
   // POST /knowledge-base/documents/:documentId/match { batchSize? } → { success, message, document }。
@@ -189,7 +197,8 @@ export async function knowledgeBaseRoutes(app: FastifyInstance, _opts: FastifyPl
     }
     const user = userOf(req);
     const projectId = getProjectIdHeader(req) ?? '';
-    const config = await buildMerged(prisma, user.id);
+    const config = bindConfigScope(await buildMerged(prisma, user.id), { kind: 'shared', userId: user.id });
+    await assertSourceUnlinked(prisma, 'knowledge-document', documentId);
     const batchSize = Number(bodyOf(req)?.batchSize) || undefined;
     kickoffExtraction(documentId, projectId, config, batchSize, document.status === 'success');
     return { success: true, message: '已开始分批匹配段落', document };

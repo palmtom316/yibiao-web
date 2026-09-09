@@ -80,6 +80,7 @@ export {
 export type {
   OutlineData,
   OutlineExpansionMode,
+  OutlineWordControlOptions,
   OutlineItem,
   OutlineMode,
   ProposalStructureCoverage,

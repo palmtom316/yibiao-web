@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { testDatabase } from '../test/database';
+import { migrateLegacyPersonnel } from './legacy-migration';
+import { getAssetFilePath, getPersonnelCertFile } from '../document/paths';
+import { hashFile } from '../business-bid/snapshots';
+
+test('legacy migration requires explicit identity mapping and is repeatable without deleting originals', async (t) => {
+  const { prisma } = await testDatabase(t);
+  const actor = await prisma.user.create({ data: { username: 'migration-operator', password: 'synthetic', role: 'admin', status: 'active' } });
+  assert.equal((await migrateLegacyPersonnel(prisma, {}, actor.id)).total, 0);
+  const file = { fileId: 'legacy-file', originalName: '证书.txt', mimeType: 'text/plain', size: 9, ext: '.txt' };
+  const one = await prisma.assetItem.create({ data: { library: 'personnel', name: '同名证书', files: [file] } });
+  const two = await prisma.assetItem.create({ data: { library: 'personnel', name: '同名证书' } });
+  const source = getAssetFilePath(undefined, 'personnel', one.id, file.fileId, file.ext);
+  await fs.mkdir(path.dirname(source), { recursive: true }); await fs.writeFile(source, 'synthetic-certificate');
+  const before = await migrateLegacyPersonnel(prisma, {}, actor.id);
+  assert.equal(before.counts['pending-mapping'], 2);
+  const mappings = { [one.id]: { newName: '合成人员甲', certName: '执业证书' } };
+  const dry = await migrateLegacyPersonnel(prisma, mappings, actor.id);
+  assert.equal(dry.counts.planned, 1); assert.equal(await prisma.personnelProfile.count(), 0);
+  const actual = await migrateLegacyPersonnel(prisma, mappings, actor.id, true);
+  assert.equal(actual.counts.migrated, 1); assert.equal(actual.counts['pending-mapping'], 1);
+  const mapping = await prisma.legacyPersonnelMigration.findUniqueOrThrow({ where: { sourceId: one.id } });
+  const targetFile = (mapping.files as any[])[0];
+  assert.equal(await hashFile(source), await hashFile(getPersonnelCertFile(undefined, mapping.profileId, mapping.certificateId, targetFile.fileId, targetFile.ext)));
+  const again = await migrateLegacyPersonnel(prisma, mappings, actor.id, true);
+  assert.equal(again.counts['already-migrated'], 1); assert.equal(again.counts.migrated, 0);
+  assert.equal(await prisma.personnelProfile.count(), 1); assert.equal(await prisma.assetItem.count({ where: { library: 'personnel' } }), 2);
+  await fs.writeFile(source, 'changed-source');
+  assert.equal((await migrateLegacyPersonnel(prisma, mappings, actor.id, true)).counts.conflict, 1);
+  assert.equal(await prisma.assetItem.count({ where: { id: two.id } }), 1);
+});

@@ -1,3 +1,4 @@
+import AuthorizedImage from './AuthorizedImage';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { renderMarkdownHtml } from '../markdown/renderMarkdownHtml';
 import { useTheme } from '../theme/ThemeProvider';
@@ -187,17 +188,17 @@ function MarkdownRenderer({
         const src = element.getAttribute('src') || '';
         const alt = element.getAttribute('alt') || '正文图片';
         const previewEnabled = imageMode === 'preview' && Boolean(src) && Boolean(onPreviewImage);
-        const handlePreview = () => {
-          if (previewEnabled) onPreviewImage?.(src, alt);
+        const handlePreview = (event?: { currentTarget: HTMLImageElement }) => {
+          if (previewEnabled) onPreviewImage?.(event?.currentTarget.currentSrc || src, alt);
         };
         const handleKeyDown = (event: KeyboardEvent<HTMLImageElement>) => {
           if (!previewEnabled || (event.key !== 'Enter' && event.key !== ' ')) return;
           event.preventDefault();
-          handlePreview();
+          handlePreview(event);
         };
 
         return (
-          <img
+          <AuthorizedImage
             key={key}
             src={src}
             alt={alt}

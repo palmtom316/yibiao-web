@@ -47,7 +47,7 @@ function PersonnelProfileEditor({ open, profile, onClose }: PersonnelProfileEdit
       if (isEdit && profile) {
         await updateMut.mutateAsync({
           id: profile.id,
-          input: { name: trimmed, department, position, phone, notes, tags: tagList },
+          input: { version: profile?.version, name: trimmed, department, position, phone, notes, tags: tagList },
         });
         showToast('已保存修改', 'success');
       } else {

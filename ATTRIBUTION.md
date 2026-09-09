@@ -22,3 +22,11 @@
 当前 Web 版已移除资源下载模块。该移除属于修改版功能范围调整，不改变原项目作者归属、原仓库链接、`LICENSE`、`NOTICE` 或 AGPL-3.0-only 授权声明。
 
 本修改版继续以 GNU AGPL-3.0-only 授权。它不是原作者的官方发布，也不代表原作者对本修改版提供担保或支持。
+
+
+## 本轮 Web 改造（2026-09-08）
+
+- 维护仓库：https://github.com/palmtom316/yibiao-web，维护者 palmtom316。
+- 增加 Docker 交付、迁移/恢复、安全出口、原件与图片版本、台账/业绩、商务响应与不可变引用。
+- 算法来源固定为 palmtom316/yibiao 的 b079bc0d923c4a533b9c2de3a9f573f4c75d8137；具体文件和回归见 [移植登记](docs/implementation/UPSTREAM-PORTS.md)。
+- 保留 mark / yibiaoai、jdcome 及上游贡献者归属；本轮仍使用 AGPL-3.0-only。

@@ -1,10 +1,11 @@
 // 配置持久化：AppConfig（平台级，含真实 AI key，管理员维护）+ UserConfig（个人偏好）。
-// GET 合并两者并归一化；非管理员下发时脱敏 key；保存时空 key 不覆盖现有 key。
+// 所有浏览器响应脱敏；服务端内部保留真实 key，空输入保留，清除必须显式指定。
 import type { PrismaClient } from '@prisma/client';
 import { normalizeConfig, withAnalyticsIdentity, defaultConfig } from './normalize';
 
 // 进程内缓存 AppConfig（避免每次 GET 都查库；save 时失效）。多实例部署需改 Redis，本期单实例够用。
 let appConfigCache: any = null;
+const clientConfigCaches = new WeakMap<PrismaClient, any>();
 
 // Agent sidecar 配置版本号：saveAppConfig 检测到 context_length_limit 变更时自增。
 // runtimeService.handleConfigChanged 比对前后版本号决定是否重启 sidecar（key/model 由 proxy 每请求直读免重启）。
@@ -20,30 +21,43 @@ function clone(value: any): any {
 
 function redactSecrets(config: any): any {
   const redacted = clone(config);
-  if (redacted.text_model_profiles) {
-    for (const provider of Object.keys(redacted.text_model_profiles)) {
-      if (redacted.text_model_profiles[provider]) redacted.text_model_profiles[provider].api_key = '';
+  for (const profiles of [redacted.text_model_profiles, redacted.image_model_profiles]) {
+    for (const profile of Object.values(profiles || {}) as any[]) {
+      profile.configured = Boolean(profile.api_key);
+      profile.api_key = '';
     }
   }
-  if (redacted.image_model_profiles) {
-    for (const provider of Object.keys(redacted.image_model_profiles)) {
-      if (redacted.image_model_profiles[provider]) redacted.image_model_profiles[provider].api_key = '';
-    }
+  if (redacted.image_model) {
+    redacted.image_model.configured = Boolean(redacted.image_model.api_key);
+    redacted.image_model.api_key = '';
   }
-  if (redacted.image_model) redacted.image_model.api_key = '';
-  if (redacted.file_parser) redacted.file_parser.mineru_token = '';
+  if (redacted.file_parser) {
+    redacted.file_parser.configured = Boolean(redacted.file_parser.mineru_token);
+    redacted.file_parser.mineru_token = '';
+  }
+  redacted.configured = Boolean(redacted.api_key);
   redacted.api_key = '';
   return redacted;
 }
 
+export function mergeSecret(incoming: unknown, current: unknown, clear = false): string {
+  if (clear) return '';
+  if (incoming === undefined || incoming === null || incoming === '') return String(current || '');
+  if (typeof incoming !== 'string' || /[*•●]{3,}|^<redacted>$|^\[REDACTED\]$/i.test(incoming)) {
+    throw Object.assign(new Error('请填写新密钥；掩码不能保存为密钥'), { statusCode: 400 });
+  }
+  return incoming.trim() || String(current || '');
+}
+
 async function readAppConfigRaw(prisma: PrismaClient): Promise<any> {
-  if (appConfigCache) return appConfigCache;
+  if (clientConfigCaches.has(prisma)) return clientConfigCaches.get(prisma);
   const row = await (prisma as any).appConfig.upsert({
     where: { id: 1 },
     update: {},
     create: { id: 1, data: withAnalyticsIdentity(normalizeConfig(defaultConfig)) as any },
   });
   appConfigCache = row.data as any;
+  clientConfigCaches.set(prisma, appConfigCache);
   return appConfigCache;
 }
 
@@ -66,13 +80,29 @@ async function readUserConfigRaw(prisma: PrismaClient, userId: number): Promise<
 export async function buildMerged(prisma: PrismaClient, userId: number): Promise<any> {
   const appRaw = await readAppConfigRaw(prisma);
   const userRaw = await readUserConfigRaw(prisma, userId);
-  return normalizeConfig({ ...appRaw, ...userRaw });
+  const preference = Object.fromEntries(USER_FIELD_WHITELIST.filter((key) => key in userRaw).map((key) => [key, userRaw[key]]));
+  const provider = preference.text_model_provider || appRaw.text_model_provider;
+  const text = appRaw.text_model_profiles?.[provider] || {};
+  const imageProvider = preference.image_model?.provider || appRaw.image_model?.provider;
+  return normalizeConfig({ ...appRaw, ...preference, ...text,
+    image_model: appRaw.image_model_profiles?.[imageProvider] || appRaw.image_model,
+    file_parser: { ...appRaw.file_parser, provider: preference.file_parser?.provider || appRaw.file_parser?.provider },
+  });
 }
 
 // 管理员保存：深合并 profile/scenario，incoming 空 key 时保留现有 key（配合下发脱敏）。
 export async function saveAppConfig(prisma: PrismaClient, incoming: any): Promise<{ success: boolean; message: string; config: any }> {
   const currentNorm = normalizeConfig(await readAppConfigRaw(prisma));
   const src = incoming && typeof incoming === 'object' ? incoming : {};
+  const clearSecrets = new Set<string>(Array.isArray(src.clear_secrets) ? src.clear_secrets : []);
+  const allowedSecrets = new Set([
+    'file_parser.mineru_token',
+    ...Object.keys(currentNorm.text_model_profiles || {}).map((p) => `text_model_profiles.${p}.api_key`),
+    ...Object.keys(currentNorm.image_model_profiles || {}).map((p) => `image_model_profiles.${p}.api_key`),
+  ]);
+  if ([...clearSecrets].some((key) => !allowedSecrets.has(key))) {
+    throw Object.assign(new Error('清除密钥字段无效'), { statusCode: 400 });
+  }
 
   const mergedTextProfiles: any = { ...(currentNorm.text_model_profiles || {}) };
   if (src.text_model_profiles && typeof src.text_model_profiles === 'object') {
@@ -82,7 +112,7 @@ export async function saveAppConfig(prisma: PrismaClient, incoming: any): Promis
       mergedTextProfiles[provider] = {
         ...cur,
         ...inc,
-        api_key: inc.api_key ? inc.api_key : cur.api_key,
+        api_key: mergeSecret(inc.api_key, cur.api_key),
       };
     }
   }
@@ -95,11 +125,16 @@ export async function saveAppConfig(prisma: PrismaClient, incoming: any): Promis
       mergedImageProfiles[provider] = {
         ...cur,
         ...inc,
-        api_key: inc.api_key ? inc.api_key : cur.api_key,
+        api_key: mergeSecret(inc.api_key, cur.api_key),
       };
     }
   }
 
+  for (const key of clearSecrets) {
+    const [group, provider] = key.split('.');
+    if (group === 'text_model_profiles') mergedTextProfiles[provider].api_key = '';
+    if (group === 'image_model_profiles') mergedImageProfiles[provider].api_key = '';
+  }
   // 活动投影（扁平 text 字段 / image_model）必须与合并后的 profiles 一致，
   // 否则 normalizeConfig 会从陈旧的扁平字段反推 active profile 从而覆盖 profile 里的 key。
   const activeTextProvider = src.text_model_provider || currentNorm.text_model_provider;
@@ -107,9 +142,14 @@ export async function saveAppConfig(prisma: PrismaClient, incoming: any): Promis
   const activeImageProvider = src.image_model?.provider || currentNorm.image_model?.provider;
   const activeImageProfile = mergedImageProfiles[activeImageProvider] || currentNorm.image_model_profiles?.[activeImageProvider] || {};
 
+  if (src.api_key !== undefined) activeTextProfile.api_key = mergeSecret(src.api_key, activeTextProfile.api_key, clearSecrets.has(`text_model_profiles.${activeTextProvider}.api_key`));
+  if (src.image_model?.api_key !== undefined) activeImageProfile.api_key = mergeSecret(src.image_model.api_key, activeImageProfile.api_key, clearSecrets.has(`image_model_profiles.${activeImageProvider}.api_key`));
+
   const file_parser = {
+    ...currentNorm.file_parser,
+    ...src.file_parser,
     provider: src.file_parser?.provider ?? currentNorm.file_parser?.provider,
-    mineru_token: src.file_parser?.mineru_token ? src.file_parser.mineru_token : currentNorm.file_parser?.mineru_token,
+    mineru_token: mergeSecret(src.file_parser?.mineru_token, currentNorm.file_parser?.mineru_token, clearSecrets.has('file_parser.mineru_token')),
   };
 
   const merged = {
@@ -138,7 +178,8 @@ export async function saveAppConfig(prisma: PrismaClient, incoming: any): Promis
   }
   await (prisma as any).appConfig.update({ where: { id: 1 }, data: { data: nextConfig as any } });
   appConfigCache = nextConfig;
-  return { success: true, message: '配置已保存', config: nextConfig };
+  clientConfigCaches.set(prisma, nextConfig);
+  return { success: true, message: '配置已保存', config: redactSecrets(nextConfig) };
 }
 
 // 个人偏好白名单：只允许偏好类字段，绝不写 key/profile 的密钥。
@@ -175,7 +216,7 @@ export async function saveUserConfig(prisma: PrismaClient, userId: number, incom
   };
   await (prisma as any).userConfig.update({ where: { userId }, data: { data: nextData as any } });
   const merged = await buildMerged(prisma, userId);
-  return { success: true, message: '个人偏好已保存', config: merged };
+  return { success: true, message: '个人偏好已保存', config: redactSecrets(merged) };
 }
 
 export { redactSecrets };
@@ -250,5 +291,6 @@ export async function saveSystemSettings(
   const nextConfig = normalizeConfig(patch);
   await (prisma as any).appConfig.update({ where: { id: 1 }, data: { data: nextConfig as any } });
   appConfigCache = nextConfig;
+  clientConfigCaches.set(prisma, nextConfig);
   return { systemName: nextConfig.system_name, logoDataUrl: nextConfig.logo_data_url ?? null };
 }

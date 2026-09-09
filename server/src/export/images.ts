@@ -5,8 +5,10 @@
 //  - data: / http(s): / file: / 绝对/相对路径 全部保留（fs 在服务端可用）。
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readBoundedFile, ResourceAccessError } from '../security/files';
 import { imageSize } from 'image-size';
+
+export interface ImageContext { baseDir?: string; assetResolver?: (id: string) => Promise<LoadedImage | null> }
 
 export interface LoadedImage {
   buffer: Buffer;
@@ -54,40 +56,29 @@ export function normalizeImageForDocx(loaded: LoadedImage): LoadedImage {
   throw new Error('WebP 图片暂不支持导出（服务端未启用 sharp 转码）');
 }
 
-export async function loadImage(source: string, context: { baseDir?: string } = {}): Promise<LoadedImage | null> {
+export async function loadImage(source: string, context: ImageContext = {}): Promise<LoadedImage | null> {
   const url = String(source || '').trim();
   if (!url) return null;
 
   const dataUrlMatch = /^data:([^;,]+);base64,(.+)$/i.exec(url);
   if (dataUrlMatch) {
+    if (dataUrlMatch[2].length > 28 * 1024 * 1024 || !/^image\/(png|jpe?g|gif|bmp|webp)$/i.test(dataUrlMatch[1])) throw new ResourceAccessError('图片类型或大小不符合限制');
     return { buffer: Buffer.from(dataUrlMatch[2], 'base64'), type: imageTypeFromMime(dataUrlMatch[1]) };
   }
 
-  // yibiao-asset:// — 桌面解析到 generated-images / imported-images 目录；Web 服务端目前无此产物。
-  if (/^yibiao-asset:\/\//i.test(url)) {
-    return null;
+  const assetId = /^yibiao-asset:\/\/([a-z0-9-]+)$/i.exec(url)?.[1];
+  if (assetId && context.assetResolver) return context.assetResolver(assetId);
+
+  if (/^(?:https?:|file:|yibiao-asset:)/i.test(url) || path.isAbsolute(url) || !context.baseDir) {
+    throw new ResourceAccessError('仅可导出当前项目中已保存的图片，远程地址和本机路径已禁用');
+  }
+  try {
+    return { buffer: readBoundedFile(context.baseDir, url), type: imageTypeFromPath(url) };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw new ResourceAccessError('图片不可读或超出当前项目范围');
   }
 
-  if (/^https?:\/\//i.test(url)) {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`图片下载失败：${url}`);
-    }
-    const type = imageTypeFromMime(response.headers.get('content-type')) || imageTypeFromPath(new URL(url).pathname);
-    return { buffer: Buffer.from(await response.arrayBuffer()), type };
-  }
-
-  const fileUrlPrefix = 'file://';
-  const rawPath = url.startsWith(fileUrlPrefix) ? fileURLToPath(url) : url;
-  const resolvedPath = path.isAbsolute(rawPath)
-    ? rawPath
-    : path.resolve(context.baseDir || process.cwd(), rawPath);
-
-  if (!fs.existsSync(resolvedPath)) {
-    return null;
-  }
-
-  return { buffer: fs.readFileSync(resolvedPath), type: imageTypeFromPath(resolvedPath) };
 }
 
 const REMOTE_IMAGE_RETRY_ATTEMPTS = 2;
@@ -99,7 +90,7 @@ function delay(ms: number): Promise<void> {
 
 export async function loadImageWithRetry(
   source: string,
-  context: { baseDir?: string } = {},
+  context: ImageContext = {},
   options: { retryAttempts?: number; retryDelayMs?: number; onRetry?: (attempt: number, error: unknown) => void } = {},
 ): Promise<LoadedImage | null> {
   const retryAttempts = Math.max(0, Number(options.retryAttempts ?? REMOTE_IMAGE_RETRY_ATTEMPTS) || 0);
@@ -109,7 +100,7 @@ export async function loadImageWithRetry(
     try {
       return await loadImage(source, context);
     } catch (error) {
-      if (attempt >= retryAttempts) throw error;
+      if (error instanceof ResourceAccessError || attempt >= retryAttempts) throw error;
       attempt += 1;
       options.onRetry?.(attempt, error);
       if (retryDelayMs > 0) await delay(retryDelayMs);
@@ -121,5 +112,6 @@ export async function loadImageWithRetry(
 export function measureImage(buffer: Buffer): { width: number; height: number } {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = imageSize(buffer as any) as { width?: number; height?: number };
+  if ((result.width || 0) * (result.height || 0) > 40_000_000) throw new ResourceAccessError('图片像素超过限制');
   return { width: result.width || 0, height: result.height || 0 };
 }

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fastify';
 import type { JwtPayload } from '../auth/middleware';
-import { getProjectIdHeader } from '../auth/middleware';
+import { bindConfigScope } from '../security/processing';
+import { createRequireProject, getProjectIdHeader, getProjectId } from '../auth/middleware';
 import type { PrismaClient } from '@prisma/client';
 import { buildMerged } from '../config/store';
 import { getAiService } from '../ai/service';
@@ -20,10 +21,19 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
   function sendError(reply: any, error: any) {
     let code = 500;
     if (error?.aiHttpError || error?.ai_http_error) code = 502;
-    else if (error?.status === 400 || error?.statusCode === 400) code = 400;
+    else if ([400, 403].includes(error?.statusCode)) code = error.statusCode;
+    else if (error?.status === 400) code = 400;
     reply.code(code);
     return { success: false, message: error?.message || 'AI 请求失败' };
   }
+
+  app.addHook('preHandler', async (req, reply) => {
+    if (req.url.split('?')[0].endsWith('/chat') || req.url.split('?')[0].endsWith('/request-json')) {
+      await createRequireProject(prisma)(req, reply);
+    } else if ((req as FastifyRequest & { user: JwtPayload }).user.role !== 'admin') {
+      reply.code(403).send({ error: '仅管理员可测试处理端点' });
+    }
+  });
 
   // 在 config 上打戳当前项目 id（best-effort 读 X-Project-Id 头；/ai 非项目作用域，不强求），
   // 供 aiService 深栈里的 emitAiHttpError 据此向触发项目的 SSE 通道 fan-out AI 上游错误。
@@ -32,7 +42,9 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
     if (config && typeof config === 'object' && projectId) {
       config.__sseProjectId = projectId;
     }
-    return config;
+    const user = (req as FastifyRequest & { user: JwtPayload }).user;
+    const scopedId = getProjectId(req);
+    return bindConfigScope(config, scopedId ? { kind: 'project', projectId: scopedId, userId: user.id } : { kind: 'administration', userId: user.id });
   }
 
   app.post('/ai/chat', async (req, reply) => {
@@ -63,11 +75,10 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
     const user = (req as FastifyRequest & { user: JwtPayload }).user;
     const body = (req as FastifyRequest & { body: unknown }).body as any;
     try {
-      // body 为表单 config 覆盖（含用户正要测试的真实 key/base_url）；缺省回落到存储配置。
-      const config = stampProjectId(
-        (body && (body.api_key || body.base_url)) ? body : await buildMerged(prisma, user.id),
-        req,
-      );
+      const stored = await buildMerged(prisma, user.id);
+      const provider = body?.text_model_provider || stored.text_model_provider;
+      const profile = stored.text_model_profiles?.[provider] || {};
+      const config = stampProjectId({ ...stored, ...profile, ...body, api_key: body?.api_key || profile.api_key || stored.api_key }, req);
       return await ai.listModels(config);
     } catch (error: any) {
       return sendError(reply, error);
@@ -78,7 +89,11 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
     const body = (req as FastifyRequest & { body: unknown }).body as any;
     try {
       // 表单 config（含真实 key）由前端提供；服务端只做代理测试，不落盘。
-      return await ai.testImageModel(stampProjectId(body || {}, req));
+      const user = (req as FastifyRequest & { user: JwtPayload }).user;
+      const stored = await buildMerged(prisma, user.id);
+      const provider = body?.image_model?.provider || stored.image_model?.provider;
+      const profile = stored.image_model_profiles?.[provider] || {};
+      return await ai.testImageModel(stampProjectId({ ...stored, ...body, image_model: { ...profile, ...body?.image_model, api_key: body?.image_model?.api_key || profile.api_key } }, req));
     } catch (error: any) {
       return sendError(reply, error);
     }
