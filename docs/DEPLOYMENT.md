@@ -2,6 +2,8 @@
 
 实际验收见 [STATUS](implementation/STATUS.md)。P0 全部验收后才是可部署基础版；开发环境 Docker 启动不等于生产发布。第一期单公司、多人各自管理项目，app 必须单实例、单 Node 进程。
 
+PVE 内部测试的端点白名单、文本模型 / MinerU 的填写位置与写入权限、部署前检查清单与已知缺口，见 [PVE 部署前：代码审核结论与部署设置](implementation/PVE-PRE-DEPLOY-2026-09-11.md)。
+
 ## Docker Compose
 
 建议 PVE 内 Ubuntu/Debian VM。5 人试配起点为 4 vCPU、8 GB、80 GB 数据盘；根据解析页数、等待、RSS 与磁盘增长实测容量。固定 Node 22.23.2、npm 10.9.3、pnpm 10.17.1、PostgreSQL 16。基础镜像摘要写在 Dockerfile/Compose，运行目标带 tsx、Prisma Client、原生模块、LibreOffice 和中文字体；nginx 目标单独包含构建后的前端。
