@@ -1,7 +1,7 @@
 # PVE 部署前：代码审核结论与部署设置
 
 - **记录日期：** 2026-09-11
-- **部署对象：** `main`（2026-09-11 由 `implement/web-transformation-20260908` fast-forward 合并；两分支同指一个提交）；业务代码提交 `d17b76e`
+- **部署对象：** `main`（原 `implement/web-transformation-20260908` 已于 2026-09-11 fast-forward 合并进来并删除，`main` 即唯一线）；业务代码提交 `d17b76e`
 - **审核记录：**
   - [CODE-REVIEW-2026-09-09.md](CODE-REVIEW-2026-09-09.md) —— 完整审查报告（对象 `be10550`）
   - [CODE-REVIEW-2026-09-09-FIXES.md](CODE-REVIEW-2026-09-09-FIXES.md) —— 逐条核实与修订记录（代码提交 `d17b76e`）
