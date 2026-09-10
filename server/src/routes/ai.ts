@@ -31,7 +31,7 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
     if (req.url.split('?')[0].endsWith('/chat') || req.url.split('?')[0].endsWith('/request-json')) {
       await createRequireProject(prisma)(req, reply);
     } else if ((req as FastifyRequest & { user: JwtPayload }).user.role !== 'admin') {
-      reply.code(403).send({ error: '仅管理员可测试处理端点' });
+      return reply.code(403).send({ error: '仅管理员可测试处理端点' });
     }
   });
 

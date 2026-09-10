@@ -39,7 +39,7 @@ export function createRequireModule(prisma: PrismaClient, moduleId: string) {
     const row = await prisma.user.findUnique({ where: { id: user.id }, select: { modules: true } });
     const granted = parseModules(row?.modules);
     if (!granted.includes(moduleId)) {
-      reply.code(403).send({ error: '无该模块访问权限' });
+      return reply.code(403).send({ error: '无该模块访问权限' });
     }
   };
 }

@@ -15,7 +15,6 @@ import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fast
 import type { PrismaClient } from '@prisma/client';
 import { getProjectId } from '../auth/middleware';
 import { createTechnicalPlanStore } from '../technical-plan/store';
-import { collectParsedImports } from '../document/multipart';
 
 export async function technicalPlanRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;

@@ -509,6 +509,14 @@ export class TaskService {
       const references = await this.deps.prisma.chapterReference.findMany({ where: { projectId, active: true } });
       for (const reference of references) await usableSnapshot(this.deps.prisma, reference.snapshotId, projectId, actorId);
       if (references.length) { requiredModules.push('knowledge-base'); processingScope.includesSharedData = true; }
+      // 参考知识文档（无章节快照时）同样含共享数据：启动时一次性冻结标记，
+      // 之后知识读取函数只做校验、不再改写作用域（P2-01）。
+      if (!processingScope.includesSharedData) {
+        const storedIds = (state as Record<string, unknown> | undefined)?.referenceKnowledgeDocumentIds;
+        const payloadIds = payload?.reference_knowledge_document_ids;
+        const hasKnowledgeDocs = (Array.isArray(storedIds) && storedIds.length > 0) || (Array.isArray(payloadIds) && payloadIds.length > 0);
+        if (hasKnowledgeDocs) { requiredModules.push('knowledge-base'); processingScope.includesSharedData = true; }
+      }
     }
     const config = bindConfigScope(await buildMerged(this.deps.prisma, actorId), processingScope);
     const diagnosticContext = {
@@ -541,8 +549,9 @@ export class TaskService {
     };
 
     // fire-and-forget：runner 自驱推进度，完成/失败各自 updateTask。
+    // 作用域冻结：runner 整个生命周期使用同一快照（P2-01）。
     Promise.resolve()
-      .then(() => withProcessingScope(processingScope, () => runner(ctx)))
+      .then(() => withProcessingScope(structuredClone(processingScope), () => runner(ctx)))
       .catch(async (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         const diagnosticError = error as { diagnosticCode?: string; diagnosticStage?: string };

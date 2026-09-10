@@ -16,15 +16,24 @@ export async function hashFile(file: string): Promise<string> {
   for await (const chunk of fs.createReadStream(file)) hash.update(chunk);
   return hash.digest('hex');
 }
+// 行锁需要 raw SQL（FOR SHARE），但表名只能来自下方闭集映射；
+// 闭集缺失的类型会在打进 SQL 之前先被 400 拒绝，ID 一律走参数绑定。
+const LOCK_TABLES = {
+  asset: 'asset_items',
+  certificate: 'personnel_certificates',
+  personnel: 'personnel_profiles',
+  performance: 'performance_records',
+  'knowledge-document': 'knowledge_documents',
+} as const satisfies Record<string, string>;
+
 async function lockSourceVersions(tx: Prisma.TransactionClient, provenance: Provenance[]) {
-  const tables: Record<string, string> = { asset: 'asset_items', certificate: 'personnel_certificates', personnel: 'personnel_profiles', performance: 'performance_records', 'knowledge-document': 'knowledge_documents' };
   for (const source of provenance) {
     let rows: Array<{ version: number }>;
     if (source.type === 'knowledge-item') {
       const [documentId, itemId] = source.id.split('::');
       rows = await tx.$queryRaw`SELECT version FROM knowledge_items WHERE "documentId"=${documentId} AND "itemId"=${itemId} FOR SHARE`;
     } else {
-      const table = tables[source.type]; if (!table) throw new ApiError(400, '引用来源类型无效');
+      const table = (LOCK_TABLES as Record<string, string | undefined>)[source.type]; if (!table) throw new ApiError(400, '引用来源类型无效');
       const key = source.type === 'knowledge-document' ? 'documentId' : 'id';
       rows = await tx.$queryRaw(Prisma.sql`SELECT version FROM ${Prisma.raw(table)} WHERE ${Prisma.raw(`"${key}"`)}=${source.id} FOR SHARE`);
     }

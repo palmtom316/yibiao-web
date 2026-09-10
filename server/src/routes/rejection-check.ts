@@ -9,7 +9,6 @@ import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fast
 import type { PrismaClient } from '@prisma/client';
 import { getProjectId } from '../auth/middleware';
 import { createRejectionCheckStore } from '../rejection-check/store';
-import { collectParsedImports } from '../document/multipart';
 
 export async function rejectionCheckRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;

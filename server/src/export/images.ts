@@ -2,7 +2,7 @@
 // 与桌面差异：
 //  - yibiao-asset://generated-images|imported-images → 返回 null（Web 服务端尚无 AI 生成图/导入图产物，P6/P7）。
 //  - WebP→PNG 不再走 electron nativeImage；docx 库本身不支持 webp，故 webp 抛错 → 上游降级为占位 warning。
-//  - data: / http(s): / file: / 绝对/相对路径 全部保留（fs 在服务端可用）。
+//  - 远程 http(s) / file: / 绝对路径一律拒绝（R02）；仅允许 data:、yibiao-asset:// 与 baseDir 内相对路径。
 import fs from 'node:fs';
 import path from 'node:path';
 import { readBoundedFile, ResourceAccessError } from '../security/files';

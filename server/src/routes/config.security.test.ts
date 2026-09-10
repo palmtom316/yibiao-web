@@ -38,6 +38,11 @@ test('admin/user config reads and writes never return secrets; empty keeps, mask
   const clear = await app.inject({ method: 'PUT', url: '/config', headers, payload: { clear_secrets: ['text_model_profiles.custom.api_key', 'file_parser.mineru_token'] } });
   assert.equal(clear.statusCode, 200); assert.equal(clear.json().config.configured, false);
   assert.equal((await buildMerged(prisma, 1)).api_key, '');
+  // P2-06：清除 MinerU Token 后，普通用户再选“MinerU 精准解析”必须折回本地解析。
+  const mineruPick = await app.inject({ method: 'PUT', url: '/config/user', headers, payload: { file_parser: { provider: 'mineru-accurate-api' } } });
+  assert.equal(mineruPick.statusCode, 200);
+  assert.match(mineruPick.json().message, /回落本地解析/);
+  assert.equal((await buildMerged(prisma, 1)).file_parser.provider, 'local', '未配置 MinerU Token 时必须折回 local');
   user.status = 'disabled';
   assert.equal((await app.inject({ method: 'GET', url: '/config', headers })).statusCode, 401);
 });

@@ -38,7 +38,7 @@ export async function assetLibraryRoutes(app: FastifyInstance, _opts: FastifyPlu
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
   const store = createAssetLibraryStore(prisma);
   app.addHook('preHandler', async (req, reply) => {
-    if ((req.params as { library?: string }).library === 'personnel' && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) reply.code(410).send({ message: '旧人员库已停止写入，请使用一人多证人员库' });
+    if ((req.params as { library?: string }).library === 'personnel' && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return reply.code(410).send({ message: '旧人员库已停止写入，请使用一人多证人员库' });
   });
 
   // GET /asset-library/:library?q=&expiry= → { items, counts }

@@ -1,6 +1,6 @@
-// Mermaid 图 → PNG 转换的 URL 生成 + 本地缓存（移植自 exportService.cjs 107-117 + utils/mermaidCache.cjs）。
-// 桌面用 mermaid.ink 远程转图 + 本地文件缓存；服务端沿用同一策略，缓存目录改到 <dataDir>/shared/mermaid-cache/。
-// yibiao-asset:// URL 在桌面用于渲染器回显，服务端导出只关心字节，故省略。
+// Mermaid 图本地缓存（<dataDir>/shared/mermaid-cache/）。
+// Web 版已禁用公网 mermaid.ink：mermaidInkUrl() 永远抛错，渲染统一走本地 Chromium
+//（server/src/illustrations/render.ts）。encodeMermaidForInk 仅供解码兼容，不得新增调用方。
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';

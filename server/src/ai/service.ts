@@ -1061,8 +1061,10 @@ export function getAiService(): AiService {
   }
 
   function enqueueTextRequest(request: any, runner: (ctx: { attempt: number; maxAttempts: number }) => Promise<any>): Promise<any> {
+    // 入队时快照作用域，避免队列中的任务被后续突变影响（P2-01）。
     const scope = currentProcessingScope();
-    return textRequestQueue.enqueue((ctx) => scope ? withProcessingScope(scope, () => runner(ctx)) : runner(ctx), { scopeId: getQueueScopeId(request) });
+    const frozenScope = scope ? structuredClone(scope) : undefined;
+    return textRequestQueue.enqueue((ctx) => frozenScope ? withProcessingScope(frozenScope, () => runner(ctx)) : runner(ctx), { scopeId: getQueueScopeId(request) });
   }
 
   singleton = {

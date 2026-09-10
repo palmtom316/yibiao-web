@@ -196,13 +196,23 @@ const USER_FIELD_WHITELIST = [
 export async function saveUserConfig(prisma: PrismaClient, userId: number, incoming: any): Promise<{ success: boolean; message: string; config: any }> {
   const src = incoming && typeof incoming === 'object' ? incoming : {};
   const patch: any = {};
+  const warnings: string[] = [];
   for (const key of USER_FIELD_WHITELIST) {
     if (Object.prototype.hasOwnProperty.call(src, key)) {
       if (key === 'image_model' && src.image_model) {
         // 个人只能选 image provider，不携带 key
         patch.image_model = { provider: src.image_model.provider };
       } else if (key === 'file_parser' && src.file_parser) {
-        patch.file_parser = { provider: src.file_parser.provider };
+        // P2-06：MinerU 精准解析必须已有管理员配置的 Token；未配置时静默折回本地解析并提示。
+        let provider = src.file_parser.provider;
+        if (provider === 'mineru-accurate-api') {
+          const appRaw = await readAppConfigRaw(prisma);
+          if (!String(appRaw.file_parser?.mineru_token || '').trim()) {
+            provider = 'local';
+            warnings.push('MinerU Token 未配置，解析已回落本地解析');
+          }
+        }
+        patch.file_parser = { provider };
       } else {
         patch[key] = src[key];
       }
@@ -216,7 +226,8 @@ export async function saveUserConfig(prisma: PrismaClient, userId: number, incom
   };
   await (prisma as any).userConfig.update({ where: { userId }, data: { data: nextData as any } });
   const merged = await buildMerged(prisma, userId);
-  return { success: true, message: '个人偏好已保存', config: redactSecrets(merged) };
+  const message = warnings.length ? `个人偏好已保存（${warnings.join('；')}）` : '个人偏好已保存';
+  return { success: true, message, config: redactSecrets(merged) };
 }
 
 export { redactSecrets };

@@ -115,7 +115,7 @@ export function createRequireAdmin() {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const user = (req as FastifyRequest & { user?: JwtPayload }).user;
     if (!user || user.role !== 'admin') {
-      reply.code(403).send({ error: '需要管理员权限' });
+      return reply.code(403).send({ error: '需要管理员权限' });
     }
   };
 }

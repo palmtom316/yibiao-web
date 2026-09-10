@@ -77,6 +77,21 @@ test('snapshot narrative images and same-name attachments survive archive, unlin
   const draftManifest = JSON.parse(draftZip.readAsText('manifest.json')); assert.equal(draftManifest.draft, true); assert.ok(draftManifest.warnings.some((warning: string) => warning.includes('缺少附件')));
 });
 
+// P1-01 回归：零快照 / 纯 asset 快照（无 knowledge-item）都不能让 snapshotHistory 500。
+test('snapshot history works for empty projects and asset-only snapshots', async (t) => {
+  const { prisma } = await testDatabase(t);
+  const user = await prisma.user.create({ data: { username: 'history-edge', password: 'synthetic', status: 'active', modules: '["knowledge-base"]' } });
+  const project = await prisma.project.create({ data: { ownerId: user.id, projectCode: 'HIST-EDGE', name: '引用历史边界' } });
+  assert.deepEqual(await snapshotHistory(prisma, project.id, user.id), []);
+  const asset = await createAssetLibraryStore(prisma).createItem('company', { name: '无附件资质' }, user.id);
+  const source = await businessSource(prisma, 'asset', asset.id);
+  const snapshot = await createReferenceSnapshot(prisma, { projectId: project.id, userId: user.id, type: source.type, id: source.id, version: source.version, fingerprint: source.fingerprint });
+  const history = await snapshotHistory(prisma, project.id, user.id);
+  assert.equal(history.length, 1);
+  assert.equal(history[0]!.id, snapshot.id);
+  assert.equal(history[0]!.sourceStatus, 'current');
+});
+
 test('business re-extraction preserves human revisions and a completed extraction job is idempotent', async (t) => {
   const { prisma } = await testDatabase(t);
   const user = await prisma.user.create({ data: { username: 'extraction-audit', password: 'synthetic', status: 'active', modules: '["knowledge-base"]' } });

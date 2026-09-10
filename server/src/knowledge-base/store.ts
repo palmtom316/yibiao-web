@@ -705,8 +705,10 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
   }
 
   async function readItems(documentId: string): Promise<Array<{ id: string; title: string; resume: string; content: string; source_block_ids: string[]; source_file?: string }>> {
+    // 处理作用域不可变：includesSharedData 在任务启动时冻结（含参考知识文档），
+    // 这里只做访问与可引用校验，不复核/改写作用域对象。
     const scope = currentProcessingScope();
-    if (scope?.kind === 'project') { scope.includesSharedData = true; await requireKnowledgeAccess(prisma, scope.userId); await assertKnowledgeCitable(prisma, [documentId]); }
+    if (scope?.kind === 'project') { await requireKnowledgeAccess(prisma, scope.userId); await assertKnowledgeCitable(prisma, [documentId]); }
     const document = await getDocumentRow(documentId);
     if (scope?.kind === 'project' && (document.archivedAt || document.status !== 'success')) throw new ApiError(409, '知识文档已归档或尚未完成，不可用于生成');
     const blockRows = await prisma.knowledgeItemBlock.findMany({
@@ -814,7 +816,6 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
     await assertKnowledgeCitable(prisma, ids);
     const scope = currentProcessingScope();
     if (scope) await requireKnowledgeAccess(prisma, scope.userId);
-    if (scope?.kind === 'project') scope.includesSharedData = true;
     if (!ids.length) return { items: [] };
     const successDocs = await prisma.knowledgeDocument.findMany({
       where: { documentId: { in: ids }, status: 'success', archivedAt: null },
@@ -844,7 +845,6 @@ export function createKnowledgeBaseStore(prisma: PrismaClient) {
     if (!ids.length) return [];
     const scope = currentProcessingScope();
     if (scope) await requireKnowledgeAccess(prisma, scope.userId);
-    if (scope?.kind === 'project') scope.includesSharedData = true;
     await assertKnowledgeCitable(prisma, ids);
     const documents = await prisma.knowledgeDocument.findMany({ where: { documentId: { in: ids }, status: 'success', archivedAt: null } });
     if (documents.length !== ids.length) throw new ApiError(409, '参考知识文档已变化或不可引用，请刷新选择');

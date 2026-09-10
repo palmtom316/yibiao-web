@@ -1850,7 +1850,13 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
               }))}
             >
               {fileParserProviders.map((provider) => (
-                  <option value={provider.value} key={provider.value}>{provider.label}</option>
+                  <option
+                    value={provider.value}
+                    key={provider.value}
+                    disabled={provider.value === 'mineru-accurate-api' && !state.fileParser.configured}
+                  >
+                    {provider.label}{provider.value === 'mineru-accurate-api' && !state.fileParser.configured ? '（需先配置 Token）' : ''}
+                  </option>
                 ))}
               </select>
             </label>

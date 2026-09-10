@@ -48,7 +48,6 @@ import {
   describeImageSourceForLog,
   type LoadedImage,
 } from './images';
-import { getMermaidCacheEntry, saveMermaidCacheImage, mermaidInkUrl } from './mermaid';
 import {
   chineseSizeToHalfPt,
   charsToTwips,
@@ -1260,7 +1259,6 @@ async function mermaidCodeToDocxBlocks(code: string, context: ExportContext): Pr
   if (!value) return [];
   const nextIndex = (context.convertedMermaidCount || 0) + 1;
   const total = context.stats?.mermaidCount || nextIndex;
-  let cacheEntry: ReturnType<typeof getMermaidCacheEntry> | null = null;
   try {
     const buffer = await renderLocalDiagram('mermaid', value);
     const block = await imageParagraphFromLoadedImage('local-mermaid', 'Mermaid 图', { buffer, type: 'png' }, context);

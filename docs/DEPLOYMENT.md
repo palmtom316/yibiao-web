@@ -104,6 +104,7 @@ docker compose -p yibiao-transform --env-file /tmp/yibiao-transform.env -f docke
 基础 `app` 目标仅需要 Node/LibreOffice/字体。需要 Word 模板字段和离线图表时在独立 override 中设置 app.build.target=app-enhanced 后重建 app；其 .NET 10 helper 自包含，Chromium 与字体版本随镜像固定。不要给 app 挂 Docker socket 或开启任意命令工具。`deploy/test/compose.enhanced.yml` 只示范目标覆盖。
 
 - `YIBIAO_OUTLINE_V2=true` 默认启用可用 Pi 的 V2；设 false 并重新创建 app 回到普通目录流程。无模型配置仍能登录和维护资料。
+- Agent 运行时固定 Pi（`YIBIAO_AGENT_RUNTIME` 默认 `pi`）。opencode 侧车尚未适配文件/处理边界，`YIBIAO_AGENT_RUNTIME=opencode` / `YIBIAO_OPENCODE_BIN` 会在启动时被拒绝（P2-07）；生产镜像不要预装 opencode 二进制，这不是“以后再开”的开关。
 - `YIBIAO_ENABLE_LOCAL_RENDER=true`、`YIBIAO_CHROMIUM_PATH`、`YIBIAO_OPENXML_HELPER` 在增强目标内置。禁用渲染后正文/原图保留，不自动走公网服务。
 - 模型、MinerU 和生图端点/密钥由管理员设置；只有已批准端点会通过请求校验。项目处理开关与共享知识策略分别维护；含共享资料的项目需要同时批准两域。
 - 模板任务先抽取章节和扫描待填位置；字段建议需要模型且遵循项目出口，字段最终由人工确认。没有 Word 原件/工具时显示降级原因，不阻断普通目录。
