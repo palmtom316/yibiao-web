@@ -1,7 +1,7 @@
 # PVE 部署前：代码审核结论与部署设置
 
 - **记录日期：** 2026-09-11
-- **部署对象：** `implement/web-transformation-20260908` @ `d17b76e`（代码）；本文档为其后的文档提交
+- **部署对象：** `main`（2026-09-11 由 `implement/web-transformation-20260908` fast-forward 合并；两分支同指一个提交）；业务代码提交 `d17b76e`
 - **审核记录：**
   - [CODE-REVIEW-2026-09-09.md](CODE-REVIEW-2026-09-09.md) —— 完整审查报告（对象 `be10550`）
   - [CODE-REVIEW-2026-09-09-FIXES.md](CODE-REVIEW-2026-09-09-FIXES.md) —— 逐条核实与修订记录（代码提交 `d17b76e`）
@@ -234,7 +234,7 @@ YIBIAO_EXTERNAL_ENDPOINTS=
 
 ### 6.2 构建与启动
 
-- [ ] 部署对象 ≥ `d17b76e`（含 P2-01～P2-07 修订）
+- [ ] 部署对象从 `main` 构建（2026-09-11 起 `main` 已含 `d17b76e` 的 P2-01～P2-07 修订；不再需要分支）
 - [ ] `POSTGRES_PASSWORD` URL-safe 随机；`JWT_SECRET` ≥32 位随机；二者不写入仓库
 - [ ] `docker compose config --quiet` 通过
 - [ ] `docker compose up -d --wait` 后 `docker compose ps` 全 healthy

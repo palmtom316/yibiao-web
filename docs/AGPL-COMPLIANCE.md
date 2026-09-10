@@ -21,6 +21,8 @@
 
 https://github.com/palmtom316/yibiao-web
 
+2026-09-11：Web 改造已 fast-forward 合并至 `main`，即默认源码地址的默认分支已包含当前修改版，页面「获取当前版本源码」不再指向未修改的上游/基线。部署仍须把 `BUILD_COMMIT` 设为实际构建提交（合并后的 `main` 提交），否则版本标识不可信。
+
 正式发布前应公开对应源码提交，并设置 BUILD_COMMIT；开发工作区的 development 标识不代表已有对应版本发布。
 
 可通过客户端构建时环境变量 `VITE_SOURCE_REPOSITORY_URL` 指向实际发布当前部署版本的仓库或源码下载地址。
