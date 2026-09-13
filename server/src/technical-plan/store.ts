@@ -11,10 +11,11 @@ import { validateReferenceBlocks, confirmedReferenceFacts } from '../business-bi
 import { Prisma, PrismaClient } from '@prisma/client';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createWorkspacePaths } from '../document/paths';
 import type { ParsedImport } from '../document/parser';
 import { detectBidSections, type BidSectionDetection } from './bidSectionDetector';
+import { ApiError } from '../security/access';
 
 export type { ParsedImport };
 
@@ -532,14 +533,28 @@ function combineTenderMarkdown(markdowns: string[]): string {
 // 原子写 markdown（temp + rename，对齐桌面 writeMarkdownFile:619-630）。
 async function writeMarkdownFile(targetPath: string, markdown: string, prefix: string): Promise<void> {
   const targetDir = path.dirname(targetPath);
-  await fs.mkdir(targetDir, { recursive: true });
+  await fs.mkdir(targetDir, { recursive: true, mode: 0o700 });
   const tempPath = path.join(targetDir, `${prefix}-${Date.now()}.tmp.md`);
-  await fs.writeFile(tempPath, `${String(markdown || '').trim()}\n`, 'utf-8');
+  await fs.writeFile(tempPath, `${String(markdown || '').trim()}\n`, 'utf-8', { mode: 0o600 });
   try {
     await fs.rename(tempPath, targetPath);
   } catch (error) {
     await fs.rm(tempPath, { force: true }).catch(() => undefined);
     throw error;
+  }
+}
+
+const importLocks = new Map<number, Promise<void>>();
+async function withImportLock<T>(projectId: number, action: () => Promise<T>): Promise<T> {
+  while (importLocks.has(projectId)) await importLocks.get(projectId);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  importLocks.set(projectId, gate);
+  try {
+    return await action();
+  } finally {
+    importLocks.delete(projectId);
+    release();
   }
 }
 
@@ -1673,76 +1688,108 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
     return loadTechnicalPlan(projectId);
   }
 
-  // ---- 文件导入（P4-2：route 已把上传 buffer 解析成 markdown，这里负责落盘 + 写库） ----
-  // 对齐桌面 importTenderDocument:1642-1671 + saveTenderMarkdownAndState:1727-1765。
+  async function assertImportAllowed(projectId: number): Promise<void> {
+    const row = await prisma.technicalPlanTask?.findFirst({
+      where: { projectId, status: { in: ['running', 'pausing', 'paused'] } },
+      select: { type: true },
+    }).catch(() => null);
+    if (row) throw new ApiError(409, '当前有技术方案任务正在运行，请完成或取消后再导入');
+  }
+
+  // 新结果写入独立 imports/<id>，数据库切换成功后再发布到当前工作副本。
   async function importTenderDocument(projectId: number, docs: ParsedImport[]): Promise<ImportResult> {
     if (!docs?.length) {
       return { success: false, message: '未导入文件', state: await loadTechnicalPlan(projectId), markdown: '' };
     }
-    const paths = createWorkspacePaths(projectId);
     const markdowns = docs.map((d) => String(d.markdown || '').trim()).filter(Boolean);
     const combinedMarkdown = combineTenderMarkdown(markdowns);
     if (!combinedMarkdown) {
       return { success: false, message: '文件内容为空或解析失败', state: await loadTechnicalPlan(projectId), markdown: '' };
     }
-    const fileName = docs.length > 1 ? `${docs.length} 份招标文件` : docs[0].fileName || '未命名文件';
-    const parserLabel = docs.length > 1 ? null : docs[0].parserLabel || null;
-
-    // 清空旧的分源文件目录，写每份独立 markdown（对齐 clearTenderSourceFiles + writeTenderSourceMarkdown）。
-    await fs.rm(paths.technicalPlanTenderFilesDir, { recursive: true, force: true }).catch(() => undefined);
-    const tenderFilesJson: Array<Record<string, unknown>> = [];
-    for (let index = 0; index < docs.length; index++) {
-      const doc = docs[index];
-      const markdown = String(doc.markdown || '').trim();
-      const id = createTenderSourceId(doc.fileName, markdown, index);
-      const relPath = path.join('technical-plan', 'tender-files', `${id}-${safeFileNamePart(doc.fileName)}.md`).replace(/\\/g, '/');
-      await writeMarkdownFile(paths.resolve(relPath), markdown, id);
-      tenderFilesJson.push({
-        id,
-        fileName: doc.fileName || '招标文件',
-        sourceId: doc.sourceId, sourceHash: doc.sourceHash, parseVersion: doc.parseVersion, warnings: doc.warnings || [], assets: doc.assets || [], sourceUnavailable: !doc.sourceId,
-        markdownPath: relPath,
-        markdownChars: markdown.length,
-        contentHash: doc.hash || shortHash(markdown),
-        parserLabel: doc.parserLabel || undefined,
-        importedAt: now(),
-        updatedAt: now(),
-      });
-    }
-    // 合并 markdown 落 tender.md + tender-original.md（备份，供 checkBidSections/selectBidSection 用）
-    await writeMarkdownFile(paths.technicalPlanTenderMarkdownPath, combinedMarkdown, 'tender');
-    await writeMarkdownFile(paths.technicalPlanTenderOriginalMarkdownPath, combinedMarkdown, 'tender-original');
-    const tenderMarkdownRelativePath = paths.relativize(paths.technicalPlanTenderMarkdownPath);
-    const tenderOriginalRelativePath = paths.relativize(paths.technicalPlanTenderOriginalMarkdownPath);
-
-    await prisma.$transaction(async (tx) => {
-      await clearDownstreamFromTender(projectId, tx);
-      await updateMeta(
-        projectId,
-        {
-          tenderFileName: fileName,
-          tenderMarkdownPath: tenderMarkdownRelativePath,
-          tenderMarkdownHash: shortHash(combinedMarkdown),
-          tenderMarkdownChars: combinedMarkdown.length,
-          tenderOriginalMarkdownPath: tenderOriginalRelativePath,
-          tenderOriginalMarkdownHash: shortHash(combinedMarkdown),
-          tenderOriginalMarkdownChars: combinedMarkdown.length,
-          tenderParserLabel: parserLabel,
-          tenderImportedAt: now(),
-          tenderFilesJson: jsonOrNull(tenderFilesJson),
-        },
-        tx,
-      );
+    return withImportLock(projectId, async () => {
+      await assertImportAllowed(projectId);
+      const paths = createWorkspacePaths(projectId);
+      const importId = randomUUID();
+      const versionRel = path.join('technical-plan', 'imports', importId).replace(/\\/g, '/');
+      const versionDir = paths.resolve(versionRel);
+      const stagingFilesDir = path.join(versionDir, 'tender-files');
+      const fileName = docs.length > 1 ? `${docs.length} 份招标文件` : docs[0].fileName || '未命名文件';
+      const parserLabel = docs.length > 1 ? null : docs[0].parserLabel || null;
+      const tenderFilesJson: Array<Record<string, unknown>> = [];
+      let committed = false;
+      try {
+        await fs.mkdir(stagingFilesDir, { recursive: true, mode: 0o700 });
+        for (let index = 0; index < docs.length; index++) {
+          const doc = docs[index];
+          const markdown = String(doc.markdown || '').trim();
+          const id = createTenderSourceId(doc.fileName, markdown, index);
+          const fileRel = path.join(versionRel, 'tender-files', `${id}-${safeFileNamePart(doc.fileName)}.md`).replace(/\\/g, '/');
+          await writeMarkdownFile(paths.resolve(fileRel), markdown, id);
+          tenderFilesJson.push({
+            id,
+            fileName: doc.fileName || '招标文件',
+            sourceId: doc.sourceId, sourceHash: doc.sourceHash, parseVersion: doc.parseVersion, warnings: doc.warnings || [], assets: doc.assets || [], sourceUnavailable: !doc.sourceId,
+            markdownPath: fileRel,
+            markdownChars: markdown.length,
+            contentHash: doc.hash || shortHash(markdown),
+            parserLabel: doc.parserLabel || undefined,
+            importedAt: now(),
+            updatedAt: now(),
+          });
+        }
+        const tenderRel = path.join(versionRel, 'tender.md').replace(/\\/g, '/');
+        const originalRel = path.join(versionRel, 'tender-original.md').replace(/\\/g, '/');
+        await writeMarkdownFile(paths.resolve(tenderRel), combinedMarkdown, 'tender');
+        await writeMarkdownFile(paths.resolve(originalRel), combinedMarkdown, 'tender-original');
+        await prisma.$transaction(async (tx) => {
+          await clearDownstreamFromTender(projectId, tx);
+          await updateMeta(
+            projectId,
+            {
+              tenderFileName: fileName,
+              tenderMarkdownPath: tenderRel,
+              tenderMarkdownHash: shortHash(combinedMarkdown),
+              tenderMarkdownChars: combinedMarkdown.length,
+              tenderOriginalMarkdownPath: originalRel,
+              tenderOriginalMarkdownHash: shortHash(combinedMarkdown),
+              tenderOriginalMarkdownChars: combinedMarkdown.length,
+              tenderParserLabel: parserLabel,
+              tenderImportedAt: now(),
+              tenderFilesJson: jsonOrNull(tenderFilesJson),
+            },
+            tx,
+          );
+        });
+        committed = true;
+        await writeMarkdownFile(paths.technicalPlanTenderMarkdownPath, combinedMarkdown, 'tender');
+        await writeMarkdownFile(paths.technicalPlanTenderOriginalMarkdownPath, combinedMarkdown, 'tender-original');
+        await fs.mkdir(paths.technicalPlanTenderFilesDir, { recursive: true, mode: 0o700 });
+        const keep = new Set<string>();
+        for (const file of tenderFilesJson) {
+          const currentName = path.basename(String(file.markdownPath));
+          keep.add(currentName);
+          await writeMarkdownFile(
+            path.join(paths.technicalPlanTenderFilesDir, currentName),
+            await fs.readFile(paths.resolve(String(file.markdownPath)), 'utf8'),
+            String(file.id),
+          );
+        }
+        for (const existing of await fs.readdir(paths.technicalPlanTenderFilesDir).catch(() => [])) {
+          if (!keep.has(existing)) await fs.rm(path.join(paths.technicalPlanTenderFilesDir, existing), { force: true }).catch(() => undefined);
+        }
+      } catch (error) {
+        if (!committed) await fs.rm(versionDir, { recursive: true, force: true }).catch(() => undefined);
+        throw error;
+      }
+      return {
+        success: true,
+        message: '招标文件已导入',
+        state: await loadTechnicalPlan(projectId),
+        markdown: combinedMarkdown,
+      };
     });
-    return {
-      success: true,
-      message: '招标文件已导入',
-      state: await loadTechnicalPlan(projectId),
-      markdown: combinedMarkdown,
-    };
   }
 
-  // 对齐桌面 importOriginalPlanDocument:1673-1725。
   async function importOriginalPlanDocument(projectId: number, docs: ParsedImport[]): Promise<ImportResult> {
     if (!docs?.length) {
       return { success: false, message: '未导入文件', state: await loadTechnicalPlan(projectId), markdown: '' };
@@ -1752,33 +1799,45 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
     if (!markdown) {
       return { success: false, message: '文件内容为空或解析失败', state: await loadTechnicalPlan(projectId), markdown: '' };
     }
-    const paths = createWorkspacePaths(projectId);
-    await writeMarkdownFile(paths.technicalPlanOriginalPlanMarkdownPath, markdown, 'original-plan');
-    const originalPlanRelativePath = paths.relativize(paths.technicalPlanOriginalPlanMarkdownPath);
-
-    await prisma.$transaction(async (tx) => {
-      await clearDownstreamFromOriginalPlan(projectId, tx);
-      await updateMeta(
-        projectId,
-        {
-          workflowKind: 'existing-plan-expansion',
-          originalPlanFileName: doc.fileName || '未命名文件',
-          originalPlanSourceId: doc.sourceId || null,
-          originalPlanMarkdownPath: originalPlanRelativePath,
-          originalPlanMarkdownHash: doc.hash || shortHash(markdown),
-          originalPlanMarkdownChars: markdown.length,
-          originalPlanParserLabel: doc.parserLabel || null,
-          originalPlanImportedAt: now(),
-        },
-        tx,
-      );
+    return withImportLock(projectId, async () => {
+      await assertImportAllowed(projectId);
+      const paths = createWorkspacePaths(projectId);
+      const importId = randomUUID();
+      const versionRel = path.join('technical-plan', 'imports', importId, 'original-plan.md').replace(/\\/g, '/');
+      const versionPath = paths.resolve(versionRel);
+      let committed = false;
+      try {
+        await writeMarkdownFile(versionPath, markdown, 'original-plan');
+        await prisma.$transaction(async (tx) => {
+          await clearDownstreamFromOriginalPlan(projectId, tx);
+          await updateMeta(
+            projectId,
+            {
+              workflowKind: 'existing-plan-expansion',
+              originalPlanFileName: doc.fileName || '未命名文件',
+              originalPlanSourceId: doc.sourceId || null,
+              originalPlanMarkdownPath: versionRel,
+              originalPlanMarkdownHash: doc.hash || shortHash(markdown),
+              originalPlanMarkdownChars: markdown.length,
+              originalPlanParserLabel: doc.parserLabel || null,
+              originalPlanImportedAt: now(),
+            },
+            tx,
+          );
+        });
+        committed = true;
+        await writeMarkdownFile(paths.technicalPlanOriginalPlanMarkdownPath, markdown, 'original-plan');
+      } catch (error) {
+        if (!committed) await fs.rm(path.dirname(versionPath), { recursive: true, force: true }).catch(() => undefined);
+        throw error;
+      }
+      return {
+        success: true,
+        message: '原方案已导入',
+        state: await loadTechnicalPlan(projectId),
+        markdown,
+      };
     });
-    return {
-      success: true,
-      message: '原方案已导入',
-      state: await loadTechnicalPlan(projectId),
-      markdown,
-    };
   }
 
   return {

@@ -1,5 +1,6 @@
 import type { ExtractedRequirementRow, ExtractionResult, ProjectTenderSourceSnapshot, ResponseDeviationAvailability } from './types';
 import { sanitizeProjectFieldPatch } from './metadata';
+import { ApiError } from '../security/access';
 
 export const RESPONSE_DEVIATION_EXTRACTOR_VERSION = '2026-08-15-v3';
 
@@ -62,8 +63,27 @@ export function createResponseDeviationStore(prisma: LoosePrisma) {
     return workspace ? { ...workspace, rows } : { projectId, status: 'empty', rows: [], generationTaskJson: null };
   };
 
+  async function requireCurrentSource(projectId: number, source?: { tenderHash?: string; selectedSectionId?: string } | null) {
+    const workspace = await prisma.responseDeviationWorkspace.findUnique({ where: { projectId } });
+    if (!workspace) throw new ApiError(409, '请先生成技术响应与偏离表');
+    const hash = String(source?.tenderHash || '');
+    const selected = String(source?.selectedSectionId || '');
+    const mismatch = !source
+      || workspace.tenderHash !== hash
+      || String(workspace.selectedSectionId || '') !== selected
+      || workspace.extractorVersion !== RESPONSE_DEVIATION_EXTRACTOR_VERSION;
+    if (workspace.status === 'stale' || mismatch) {
+      if (workspace.status !== 'stale') {
+        await prisma.responseDeviationWorkspace.update({ where: { projectId }, data: { status: 'stale' } });
+      }
+      throw new ApiError(409, '招标来源已变化或已过期，请重新生成并人工复核后再确认或导出');
+    }
+    return getWorkspace(projectId);
+  }
+
   return {
     getWorkspace,
+    requireCurrentSource,
 
     async getRow(projectId: number, rowId: string) {
       return prisma.responseDeviationRow.findFirst({ where: { id: rowId, projectId } });
@@ -186,12 +206,13 @@ export function createResponseDeviationStore(prisma: LoosePrisma) {
       return getWorkspace(projectId);
     },
 
-    async confirmWorkspace(projectId: number) {
+    async confirmWorkspace(projectId: number, source?: { tenderHash?: string; selectedSectionId?: string } | null) {
+      await requireCurrentSource(projectId, source);
       const workspace = await prisma.responseDeviationWorkspace.findUnique({ where: { projectId } });
-      if (!workspace) throw new Error('请先生成技术响应与偏离表');
+      if (!workspace) throw new ApiError(409, '请先生成技术响应与偏离表');
       const stats = (workspace.statsJson || {}) as Record<string, unknown>;
-      if (Array.isArray(stats.uncoveredBlockIds) && stats.uncoveredBlockIds.length) throw new Error('仍有未覆盖的招标原文，请先复核');
-      if (Array.isArray(stats.duplicateBlockIds) && stats.duplicateBlockIds.length) throw new Error('存在重复引用的招标原文，请先复核');
+      if (Array.isArray(stats.uncoveredBlockIds) && stats.uncoveredBlockIds.length) throw new ApiError(409, '仍有未覆盖的招标原文，请先复核');
+      if (Array.isArray(stats.duplicateBlockIds) && stats.duplicateBlockIds.length) throw new ApiError(409, '存在重复引用的招标原文，请先复核');
       await prisma.responseDeviationWorkspace.update({
         where: { projectId },
         data: { status: 'confirmed', confirmedAt: new Date() },
@@ -202,11 +223,13 @@ export function createResponseDeviationStore(prisma: LoosePrisma) {
     async markStaleIfSourceChanged(projectId: number, tenderHash: string, selectedSectionId: string) {
       const workspace = await prisma.responseDeviationWorkspace.findUnique({ where: { projectId } });
       if (!workspace) return false;
-      const stale = workspace.tenderHash !== tenderHash || workspace.selectedSectionId !== selectedSectionId;
+      const stale = workspace.tenderHash !== tenderHash
+        || String(workspace.selectedSectionId || '') !== String(selectedSectionId || '')
+        || workspace.extractorVersion !== RESPONSE_DEVIATION_EXTRACTOR_VERSION;
       if (stale && workspace.status !== 'stale') {
         await prisma.responseDeviationWorkspace.update({ where: { projectId }, data: { status: 'stale' } });
       }
-      return stale;
+      return stale || workspace.status === 'stale';
     },
 
     async loadResponseDeviation(projectId: number) {

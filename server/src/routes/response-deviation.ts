@@ -80,7 +80,20 @@ export async function responseDeviationRoutes(app: FastifyInstance, _opts: Fasti
     return store.patchRow(getProjectId(req), String((req.params as { rowId: string }).rowId), allowed);
   });
 
-  app.post('/response-deviation/confirm', async (req) => store.confirmWorkspace(getProjectId(req)));
+  app.post('/response-deviation/confirm', async (req, reply) => {
+    const projectId = getProjectId(req);
+    try {
+      const source = await sourceService.getSnapshot(projectId);
+      return await store.confirmWorkspace(projectId, source);
+    } catch (error) {
+      const status = Number((error as { statusCode?: number }).statusCode) || 409;
+      return reply.code(status >= 400 && status < 600 ? status : 409).send({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
 
   app.get('/response-deviation/source/:rowId', async (req, reply) => {
     const row = await store.getRow(getProjectId(req), String((req.params as { rowId: string }).rowId));
@@ -103,8 +116,10 @@ export async function responseDeviationRoutes(app: FastifyInstance, _opts: Fasti
   });
 
   app.post('/response-deviation/export', async (req, reply) => {
-    const workspace = await store.getWorkspace(getProjectId(req));
+    const projectId = getProjectId(req);
     try {
+      const source = await sourceService.getSnapshot(projectId);
+      const workspace = await store.requireCurrentSource(projectId, source);
       const result = await buildResponseDeviationDocx(workspace as never);
       return reply
         .header('Content-Type', DOCX_MIME)
