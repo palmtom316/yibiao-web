@@ -109,9 +109,17 @@ export async function loadImageWithRetry(
   return null;
 }
 
+function isMeasuredImageType(buffer: Buffer): boolean {
+  if (buffer.length < 12) return false;
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) return true;
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return true;
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) return true;
+  return buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 && buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50;
+}
+
 export function measureImage(buffer: Buffer): { width: number; height: number } {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = imageSize(buffer as any) as { width?: number; height?: number };
+  if (!isMeasuredImageType(buffer)) throw new ResourceAccessError('不支持的图片格式');
+  const result = imageSize(buffer) as { width?: number; height?: number };
   if ((result.width || 0) * (result.height || 0) > 40_000_000) throw new ResourceAccessError('图片像素超过限制');
   return { width: result.width || 0, height: result.height || 0 };
 }

@@ -535,7 +535,7 @@ async function writeMarkdownFile(targetPath: string, markdown: string, prefix: s
   const targetDir = path.dirname(targetPath);
   await fs.mkdir(targetDir, { recursive: true, mode: 0o700 });
   const tempPath = path.join(targetDir, `${prefix}-${Date.now()}.tmp.md`);
-  await fs.writeFile(tempPath, `${String(markdown || '').trim()}\n`, 'utf-8', { mode: 0o600 });
+  await fs.writeFile(tempPath, `${String(markdown || '').trim()}\n`, { encoding: 'utf-8', mode: 0o600 });
   try {
     await fs.rename(tempPath, targetPath);
   } catch (error) {

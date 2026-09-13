@@ -95,7 +95,7 @@ test('R01 self-check probes use processingFetch and honor allowlists', async (t)
     if (previousInternal === undefined) delete process.env.YIBIAO_INTERNAL_ENDPOINTS; else process.env.YIBIAO_INTERNAL_ENDPOINTS = previousInternal;
     if (previousExternal === undefined) delete process.env.YIBIAO_EXTERNAL_ENDPOINTS; else process.env.YIBIAO_EXTERNAL_ENDPOINTS = previousExternal;
   });
-  const { runPiTextModelSelfCheck } = await import('../agent/pi/piSelfCheck.ts');
+  const { runPiTextModelSelfCheck } = await import('../agent/pi/piSelfCheck');
   const config = { api_key: 'synthetic-review-model-key', model_name: 'review-model', base_url: 'https://review.invalid/v1' };
 
   process.env.YIBIAO_INTERNAL_ENDPOINTS = '';
@@ -144,7 +144,7 @@ test('R02 list-models and image tests bind a verified project scope', async (t) 
     if (previousInternal === undefined) delete process.env.YIBIAO_INTERNAL_ENDPOINTS; else process.env.YIBIAO_INTERNAL_ENDPOINTS = previousInternal;
     if (previousExternal === undefined) delete process.env.YIBIAO_EXTERNAL_ENDPOINTS; else process.env.YIBIAO_EXTERNAL_ENDPOINTS = previousExternal;
   });
-  const { aiRoutes } = await import('../routes/ai.ts');
+  const { aiRoutes } = await import('../routes/ai');
   const { db, admin, user } = databaseDouble();
   setProcessingAuthorizer(createProcessingAuthorizer(db));
   process.env.YIBIAO_INTERNAL_ENDPOINTS = '';
@@ -190,7 +190,7 @@ test('R02 list-models and image tests bind a verified project scope', async (t) 
 test('processing denials are not retried', async () => {
   const denied = new ProcessingDeniedError('synthetic deny');
   assert.equal(isRetryableAiRequestError(denied), false);
-  const { listModelsWithConfig } = await import('../ai/service.ts');
+  const { listModelsWithConfig } = await import('../ai/service');
   let checks = 0;
   setProcessingAuthorizer(async () => { checks += 1; throw new ProcessingDeniedError('synthetic deny'); });
   await withProcessingScope({ kind: 'project', projectId: 42, userId: 1 }, async () => {

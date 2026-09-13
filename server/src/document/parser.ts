@@ -1,11 +1,13 @@
+import os from 'node:os';
 import { parseQueue } from '../resources/queue';
+import { parseFileInBoundedWorkerUnqueued } from './bounded-parse';
 // 本地文档解析层（移植自 client/electron/services/fileService.cjs 的本地路径）。
 // 注意：现行导入闭环走 document/imports.startImport → persistSource → parse-worker.mjs
 //（includeImages:true，图片保留为 yibiao-asset://）。本文件 parseDocument 仅存 knowledge-base
 // pipeline 的兼容调用：includeImages:false 后再 stripMarkdownImages，不含 MinerU，
 // 不再用于任何 multipart 上传流程（旧 collectParsedImports 已删除）。
 //
-// convert.mjs 是 ESM，用 dynamic import 加载（与桌面 fileService.cjs:109 同法）；
+// 非 txt 走 bounded parse-worker，避免 xlsx/pdfjs/sharp 进入主进程。
 // documentParseErrors.cjs 是 CJS，用 createRequire 取（避免 TS 对 .cjs 的模块解析）。
 import path from 'node:path';
 import fs from 'node:fs/promises';
@@ -80,8 +82,13 @@ async function parseDocumentImpl(filePath: string): Promise<ParseDocumentResult>
     if (ext === '.txt') {
       markdown = await fs.readFile(filePath, 'utf-8');
     } else {
-      const { convertPathToMarkdown } = await import('./doc2markdown/convert.mjs');
-      markdown = await convertPathToMarkdown(filePath, { includeImages: false, imageResolver: null });
+      const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'yibiao-parse-'));
+      try {
+        const parsed = await parseFileInBoundedWorkerUnqueued(filePath, outputDir);
+        markdown = parsed.markdown;
+      } finally {
+        await fs.rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
+      }
     }
     markdown = stripMarkdownImages(markdown);
     const { hash, chars } = await computeHashAndChars(markdown);

@@ -597,6 +597,8 @@ async function extractPdfJsTables(buffer) {
   const loadingTask = getDocument({
     data: new Uint8Array(buffer),
     disableWorker: true,
+    enableScripting: false,
+    isEvalSupported: false,
   });
   const document = await loadingTask.promise;
 
