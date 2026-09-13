@@ -2224,13 +2224,18 @@ export function extractImageOccurrences(markdown: unknown): ImageOccurrence[] {
   return occurrences;
 }
 
-export async function readImageTargetBuffer(target: unknown): Promise<Buffer | null> {
+export async function readImageTargetBuffer(target: unknown, baseDir?: string): Promise<Buffer | null> {
   const value = String(target || '').trim();
   if (!value) return null;
   const dataMatch = value.match(/^data:image\/[^;]+;base64,(?<data>[A-Za-z0-9+/=\s]+)$/i);
   if (dataMatch?.groups?.data) return Buffer.from(dataMatch.groups.data.replace(/\s+/g, ''), 'base64');
-
-  return null;
+  if (!baseDir) return null;
+  try {
+    const { readBoundedFile } = await import('../../security/files');
+    return readBoundedFile(baseDir, value, 20 * 1024 * 1024);
+  } catch {
+    return null;
+  }
 }
 
 export function buildDuplicateImages(globalImages: Map<string, { hash: string; preview_url: string; file_ids: string[]; occurrences: Record<string, number>; locations: Record<string, unknown> }>): Record<string, unknown>[] {

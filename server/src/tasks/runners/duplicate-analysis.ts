@@ -1,5 +1,8 @@
 import { currentProcessingScope } from '../../security/processing';
 import { readBoundedFile, ResourceAccessError } from '../../security/files';
+import { parseFileInBoundedWorker } from '../../document/bounded-parse';
+import { parseQueue } from '../../resources/queue';
+import { ApiError } from '../../security/access';
 // L4 runner #63：duplicate-analysis（标书查重分析）。
 // 移植自 client/electron/services/duplicateCheckService.cjs:2100-2816（工厂编排）。
 //
@@ -202,6 +205,19 @@ async function readCombinedTenderMarkdown(contentFiles: Record<string, unknown>[
   return parts.join('\n\n');
 }
 
+function assertDuplicateFileSet(files: DuplicateFile[], resolve: (rel: string) => string): void {
+  if (files.length > 30) throw new ApiError(422, '查重文件数量超过限制');
+  let total = 0;
+  for (const file of files) {
+    if (!file?.file_path || !file?.file_name) throw new ApiError(422, '查重文件不完整');
+    resolve(file.file_path);
+    const size = Number(file.size || 0);
+    if (size > 100 * 1024 * 1024) throw new ApiError(422, `文件过大：${file.file_name}`);
+    total += size;
+  }
+  if (total > 200 * 1024 * 1024) throw new ApiError(422, '查重文件合计超过 200 MiB');
+}
+
 async function runContentExtraction(
   workspaceStore: DuplicateCheckWorkspaceStore,
   contentDir: string,
@@ -219,19 +235,14 @@ async function runContentExtraction(
   developerLogger.write('duplicate.content_extraction.started', { file_count: allFiles.length, files: allFiles.map((file) => summarizeDuplicateFileForLog(file, tenderFileIds.has(stableFileId(file)) ? 'tender' : 'bid')) });
   await updateAnalysisSection(workspaceStore, 'metadataAnalysis', { contentExtraction: { status: 'running', completed: 0, total: allFiles.length }, message: '正在提取正文内容' }, notify, isCurrent);
 
-  const { convertPathToMarkdown } = await import('../../document/doc2markdown/convert.mjs');
-
   for (const file of allFiles) {
     const fileId = stableFileId(file);
     try {
       const absolutePath = resolve(file.file_path);
-      const markdown = (await convertPathToMarkdown(absolutePath, {
-        includeImages: true,
-        imageResolver: async (image: { buffer: Buffer; mime: string; sourceName: string }) => `data:${image.mime};base64,${image.buffer.toString('base64')}`,
-      })).trim();
-      const contentPath = nodePath.join(contentDir, `${fileId}.md`);
-      await nodeFs.writeFile(contentPath, markdown, 'utf-8');
-      results.push({ file_id: fileId, file_name: file.file_name, status: 'success', content_path: contentPath, content_length: markdown.length });
+      const outputDir = nodePath.join(contentDir, fileId);
+      const parsed = await parseFileInBoundedWorker(absolutePath, outputDir);
+      const contentPath = nodePath.join(outputDir, 'content.md');
+      results.push({ file_id: fileId, file_name: file.file_name, status: 'success', content_path: contentPath, content_length: parsed.markdown.length, asset_count: parsed.assets.length });
     } catch (error) {
       results.push({ file_id: fileId, file_name: file.file_name, status: 'error', error: error instanceof Error ? error.message : '正文提取失败' });
     }
@@ -259,7 +270,8 @@ async function runMetadataExtraction(
     const fileId = stableFileId(file);
     try {
       const absFile: DuplicateFile = { ...file, file_path: resolve(file.file_path) };
-      results.push({ file_id: fileId, file_name: file.file_name, status: 'success', metadata: await extractMetadata(absFile) });
+      const metadata = await parseQueue.run(() => extractMetadata(absFile));
+      results.push({ file_id: fileId, file_name: file.file_name, status: 'success', metadata });
     } catch (error) {
       results.push({ file_id: fileId, file_name: file.file_name, status: 'error', error: error instanceof Error ? error.message : '元数据提取失败', metadata: [] });
     }
@@ -437,7 +449,9 @@ async function runImageDuplicateAnalysis(
       const local = new Map<string, { count: number; preview_url: string; locations: unknown[] }>();
       for (const occurrence of imageOccurrences) {
         try {
-          const buffer = await readImageTargetBuffer(occurrence.target);
+          const contentPath = String(contentFiles.find((entry) => entry.file_id === fileId && entry.content_path)?.content_path || '');
+          const nodePath = await import('node:path');
+          const buffer = await readImageTargetBuffer(occurrence.target, contentPath ? nodePath.dirname(contentPath) : undefined);
           if (!buffer?.length) continue;
           const { createHash } = await import('node:crypto');
           const hash = createHash('sha256').update(buffer).digest('hex');
@@ -533,11 +547,11 @@ export const runDuplicateAnalysisTask: TaskRunner = async (ctx: TaskRunnerContex
   const { updateTask, projectId } = ctx;
   const payload = ctx.payload || {};
   const paths = createWorkspacePaths(projectId);
-
   const signature = createSignature(payload);
   const force = payload.force === true;
   const bidFiles = (Array.isArray(payload.bidFiles) ? payload.bidFiles : []) as DuplicateFile[];
   const tenderFiles = getTenderFilesFromPayload(payload) as DuplicateFile[];
+  assertDuplicateFileSet([...tenderFiles, ...bidFiles], paths.resolve.bind(paths));
 
   developerLogger.write('duplicate.task.started', { signature, force, tender_files: tenderFiles.map((file) => summarizeDuplicateFileForLog(file, 'tender')), bid_files: bidFiles.map((file) => summarizeDuplicateFileForLog(file, 'bid')) });
 
