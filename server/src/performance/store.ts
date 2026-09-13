@@ -11,7 +11,7 @@ const include = {
 } as const;
 export type PerformanceDetail = Prisma.PerformanceRecordGetPayload<{ include: typeof include }>;
 function dto(row: PerformanceDetail) { return JSON.parse(JSON.stringify({ ...row, contractAmount: row.contractAmount?.toFixed(2) ?? null })); }
-function fields(input: Record<string, unknown>, creating = false) {
+function fields(input: Record<string, unknown>, creating = false, current?: { startedAt: Date | null; completedAt: Date | null }) {
   const out: Record<string, any> = {};
   for (const key of ['title', 'ownerName', 'location', 'durationText', 'roleText', 'projectType', 'summary', 'notes', 'currency']) {
     if (input[key] !== undefined) { if (typeof input[key] !== 'string') throw new ApiError(400, '业绩字段应为文字'); out[key] = (input[key] as string).trim(); }
@@ -20,7 +20,11 @@ function fields(input: Record<string, unknown>, creating = false) {
   if (out.title?.length > 200 || out.summary?.length > 50000 || out.notes?.length > 50000) throw new ApiError(400, '业绩文字超过长度限制');
   if (input.contractAmount !== undefined) out.contractAmount = decimalAmount(input.contractAmount);
   for (const key of ['contractSignedAt', 'startedAt', 'completedAt']) if (input[key] !== undefined) out[key] = parseDate(input[key], key);
-  if (out.startedAt && out.completedAt && out.startedAt > out.completedAt) throw new ApiError(400, '结束日期不得早于开始日期');
+  // O07：跨字段校验必须看合并后的结果。只提交一个日期时，另一个日期仍取库中现值，
+  // 否则「先有 completedAt、后单独提交更晚的 startedAt」会以非法组合落库。
+  const startedAt = out.startedAt ?? current?.startedAt ?? null;
+  const completedAt = out.completedAt ?? current?.completedAt ?? null;
+  if (startedAt && completedAt && startedAt > completedAt) throw new ApiError(400, '结束日期不得早于开始日期');
   if (input.isPubliclyCitable !== undefined) { if (typeof input.isPubliclyCitable !== 'boolean') throw new ApiError(400, '引用许可必须明确选择'); out.isPubliclyCitable = input.isPubliclyCitable; }
   if (input.tags !== undefined) { if (!Array.isArray(input.tags) || input.tags.some((tag) => typeof tag !== 'string')) throw new ApiError(400, '标签必须是文字列表'); out.tags = [...new Set(input.tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 50); }
   if (out.currency && !/^[A-Z]{3}$/.test(out.currency)) throw new ApiError(400, '币种应为三位代码，例如 CNY');
@@ -85,9 +89,10 @@ export function createPerformanceStore(prisma: PrismaClient) {
       return get(id);
     },
     async update(id: string, input: Record<string, any>, actorId: number, linksOnly = false) {
-      const version = expectedVersion(input.version); const patch = linksOnly ? {} : fields(input);
+      const version = expectedVersion(input.version);
       await prisma.$transaction(async (tx) => {
         const current = await tx.performanceRecord.findUniqueOrThrow({ where: { id } });
+        const patch = linksOnly ? {} : fields(input, false, current);
         const updated = await tx.performanceRecord.updateMany({ where: { id, version, ...(linksOnly ? {} : { archivedAt: null }) }, data: { ...patch, version: { increment: 1 }, updatedByUserId: actorId } });
         if (!updated.count) throw new ApiError(409, '业绩已被修改或归档，请刷新');
         if (current.isPubliclyCitable && patch.isPubliclyCitable === false) await tx.referenceRevocation.create({ data: { sourceType: 'performance', sourceId: id, throughVersion: version, revokedByUserId: actorId, reason: typeof input.revocationReason === 'string' && input.revocationReason.trim() ? input.revocationReason.trim() : '维护人撤销对外引用许可' } });

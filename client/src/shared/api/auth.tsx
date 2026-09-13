@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { http, publicHttp, TOKEN_KEY, USER_KEY } from './http';
 import { sseManager } from './sse';
+import { queryClient } from './queryClient';
 import {
   isActiveInitialPasswordChangeSession,
   isAuthenticatedResponse,
@@ -136,6 +137,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     clearInitialPasswordChange();
+    // O09：清空查询缓存。项目列表、活跃项目偏好、诊断等数据按账号授权返回，
+    // 留给下一个登录账号会跨账号串数据。
+    queryClient.clear();
     setUser(null);
   }, [clearInitialPasswordChange]);
 

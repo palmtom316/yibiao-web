@@ -9,6 +9,7 @@ import { createKnowledgeBaseStore } from '../knowledge-base/store';
 import { ingestUpload, prepareDocument } from '../knowledge-base/pipeline';
 import { getDataDir, getPersonnelCertFile } from '../document/paths';
 import { sha256 } from '../document/sources';
+import { syntheticPng } from '../test/png';
 if (process.env.YIBIAO_TEST_SCOPE !== 'yibiao-transform') throw Error('Synthetic scope required');
 const prisma = new PrismaClient();
 try {
@@ -25,7 +26,7 @@ try {
     await fs.mkdir(path.dirname(target), { recursive: true }); await fs.writeFile(target, bytes); fileHashes[path.relative(getDataDir(), target)] = meta.sha256;
   }
   const kb = createKnowledgeBaseStore(prisma); const folder = await kb.createFolder('合成恢复知识');
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j7ioAAAAASUVORK5CYII=', 'base64');
+  const png = syntheticPng();
   const input = await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('合成项目实施方案。实施前由项目经理组织现场勘查，核对设备安装位置、供电条件及线缆通路，形成记录并提交业主确认。实施期间按楼层划分作业区域，完成设备安装、接线和标签检查后开展逐点测试。质量负责人核对安装记录、测试结果与问题整改清单，验收通过后移交竣工图、操作说明和维护资料。运行维护阶段记录设备状态和故障处理过程，定期检查备份是否可恢复。以上均为本机恢复演练的合成资料，不作为真实项目证明。'), new Paragraph({ children: [new ImageRun({ type: 'png', data: png, transformation: { width: 32, height: 32 } })] })] }] }));
   const { document } = await ingestUpload(kb, folder.id, '合成知识原件.docx', '.docx', input, admin.id);
   const prepared = await prepareDocument(kb, document.id, admin.id); assert.equal(prepared.success, true, prepared.document.error);

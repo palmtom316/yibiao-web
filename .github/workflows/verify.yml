@@ -3,6 +3,24 @@ on: [push, pull_request]
 jobs:
   verify:
     runs-on: ubuntu-24.04
+    # O02：PostgreSQL 16 集成测试进入 CI。独立 service + 一次性测试库前缀（yibiao_test_*），
+    # 迁移或集成测试失败即 CI 失败。
+    services:
+      postgres:
+        image: postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
+        env:
+          POSTGRES_USER: yibiao
+          POSTGRES_PASSWORD: synthetic-ci-password
+          POSTGRES_DB: yibiao_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U yibiao -d yibiao_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      # 测试库名必须匹配 yibiao_test / yibiao_test_<suffix>；runner 会拒绝其他主机或库名。
+      TEST_DATABASE_URL: postgresql://yibiao:synthetic-ci-password@localhost:5432/yibiao_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -12,4 +30,12 @@ jobs:
       - run: npm ci && npm run typecheck && npm run build && npm test
         working-directory: client
       - run: pnpm install --frozen-lockfile && pnpm exec prisma generate && pnpm run typecheck && pnpm run build && pnpm test
+        working-directory: server
+      - name: Apply migrations to CI database
+        run: pnpm exec prisma migrate deploy
+        working-directory: server
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      - name: Server integration tests
+        run: pnpm run test:integration
         working-directory: server

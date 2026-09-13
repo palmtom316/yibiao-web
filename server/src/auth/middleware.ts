@@ -5,9 +5,21 @@ import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET?.trim() || '';
 
-if (JWT_SECRET.length < 32) {
-  throw new Error('JWT_SECRET must contain at least 32 characters');
+// O09：文档/.env 示例里的占位密钥一旦原样上生产，任何人都能自签管理员令牌。
+// 这里只做形态检查并拒绝已知示例/占位词，错误信息不回显密钥内容。
+const JWT_SECRET_PLACEHOLDERS = ['changeme', 'replaceme', 'replacewith', 'yoursecret', 'example', 'placeholder', 'jwtsecret', 'supersecret', 'topsecret'];
+
+export function assertUsableJwtSecret(secret: string): string {
+  const trimmed = secret.trim();
+  if (trimmed.length < 32) throw new Error('JWT_SECRET must contain at least 32 characters');
+  const normalized = trimmed.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (JWT_SECRET_PLACEHOLDERS.some((token) => normalized.includes(token))) {
+    throw new Error('JWT_SECRET must not be a documented example or placeholder value');
+  }
+  return trimmed;
 }
+
+assertUsableJwtSecret(JWT_SECRET);
 
 export type JwtPurpose = 'access' | 'initial-password-change';
 

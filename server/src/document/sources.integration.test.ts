@@ -8,13 +8,14 @@ import { testDatabase } from '../test/database';
 import { persistSource, parseSource, loadAuthorizedAsset, sha256 } from './sources';
 import { exportWordToBuffer } from '../export/service';
 import { syntheticPdf } from '../test/pdf';
+import { syntheticPng } from '../test/png';
 
 test('originals, immutable image parses, authorized export and failure preservation on PostgreSQL', async (t) => {
   const { prisma, dataDir } = await testDatabase(t);
   const a = await prisma.user.create({ data: { username: 'source-a', password: 'synthetic', status: 'active' } });
   const b = await prisma.user.create({ data: { username: 'source-b', password: 'synthetic', status: 'active' } });
   const project = await prisma.project.create({ data: { ownerId: a.id, projectCode: 'SOURCE-A', name: '合成图文项目' } });
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j7ioAAAAASUVORK5CYII=', 'base64');
+  const png = syntheticPng();
   const input = await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('合成文档，保留图片与表格'), new Paragraph({ children: [new ImageRun({ type: 'png', data: png, transformation: { width: 32, height: 32 } })] }), new Table({ rows: [new TableRow({ children: [new TableCell({ children: [new Paragraph('表格内容')] })] })] })] }] }));
   const source = await persistSource(prisma, { projectId: project.id }, a.id, '同名文件.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', input);
   const another = await persistSource(prisma, { projectId: project.id }, a.id, '同名文件.docx', source.mimeType, input);

@@ -1,4 +1,10 @@
 name: yibiao-web
+# O08：容器日志轮转。默认 json-file 无上限，长跑单实例会把宿主盘写满并拖垮 PostgreSQL。
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
 services:
   postgres:
     image: postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
@@ -15,6 +21,7 @@ services:
     restart: unless-stopped
     networks: [backend]
     mem_limit: 2g
+    logging: *default-logging
   migrate:
     build: {context: ., target: migrate}
     environment: &app-environment
@@ -30,6 +37,7 @@ services:
       postgres: {condition: service_healthy}
     restart: 'no'
     networks: [backend]
+    logging: *default-logging
   app:
     build:
       context: .
@@ -48,6 +56,7 @@ services:
     networks: [backend, egress]
     mem_limit: 4g
     cpus: 3
+    logging: *default-logging
   nginx:
     build:
       context: .
@@ -62,6 +71,7 @@ services:
     restart: unless-stopped
     networks: [backend, frontend]
     mem_limit: 256m
+    logging: *default-logging
 volumes:
   pgdata:
   appdata:

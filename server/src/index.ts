@@ -153,7 +153,11 @@ app.decorate('agentService', agentService);
 app.decorate('aiDiagnostics', aiDiagnostics);
 app.decorate('responseDeviationStore', responseDeviationStore);
 app.decorate('tenderSourceService', tenderSourceService);
+// O08：诊断保留期清理。启动时立即跑一次，之后每小时巡检（服务内部按 CLEANUP_INTERVAL_MS 节流，
+// 重复调用不会重复删除）。定时器 unref，不阻止进程退出；shutdown 时显式清除。
 void aiDiagnostics.cleanupExpired();
+const diagnosticCleanupTimer = setInterval(() => { void aiDiagnostics.cleanupExpired(); }, 60 * 60 * 1000);
+diagnosticCleanupTimer.unref();
 
 await app.register(cors, {
   origin: process.env.NODE_ENV === 'production' ? (process.env.YIBIAO_PUBLIC_ORIGIN || false) : true,
@@ -282,6 +286,7 @@ async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   jobs.close();
+  clearInterval(diagnosticCleanupTimer);
   closeEventStreams();
   parseQueue.stopAccepting();
   exportQueue.stopAccepting();

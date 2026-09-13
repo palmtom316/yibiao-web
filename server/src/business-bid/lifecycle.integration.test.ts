@@ -17,6 +17,7 @@ import { exportWordToBuffer } from '../export/service';
 import { createBusinessStore } from './store';
 import { createBusinessPackage, packageFile } from './export';
 import { createTechnicalPlanStore } from '../technical-plan/store';
+import { syntheticPng } from '../test/png';
 
 test('snapshot narrative images and same-name attachments survive archive, unlink and physical source deletion; incomplete copies never publish', async (t) => {
   const { prisma, dataDir } = await testDatabase(t);
@@ -26,7 +27,7 @@ test('snapshot narrative images and same-name attachments survive archive, unlin
   const folder = await kb.createFolder('合成叙述');
   const timestamp = new Date().toISOString(); const documentId = randomUUID();
   await prisma.knowledgeDocument.create({ data: { documentId, folderId: folder.id, fileName: '图文叙述.docx', documentDir: `documents/${documentId}`, sourcePath: '', markdownPath: '', status: 'success', createdAt: timestamp, updatedAt: timestamp } });
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j7ioAAAAASUVORK5CYII=', 'base64');
+  const png = syntheticPng();
   const docx = await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('合成项目叙述'), new Paragraph({ children: [new ImageRun({ type: 'png', data: png, transformation: { width: 32, height: 32 } })] })] }] }));
   const original = await persistSource(prisma, { knowledgeDocumentId: documentId }, user.id, '图文叙述.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', docx);
   const parsed = await parseSource(prisma, original.id, user.id);

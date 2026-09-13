@@ -239,6 +239,14 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
     const access = await ensureAccess(req);
     if ('error' in access) return reply.code(access.code).send({ error: access.error });
     const projectId = access.project.id;
+    // O11：项目仍有排队/运行中的后台作业时禁止删除。否则作业会在工作区表被清空之后继续写入，
+    // 产生孤儿 staging、失配的当前版本或被后台任务覆盖的新来源。要求先取消或等待作业结束。
+    const activeJobs = await prisma.backgroundJob.count({
+      where: { projectId, status: { in: ['queued', 'running', 'cancelling'] } },
+    });
+    if (activeJobs > 0) {
+      return reply.code(409).send({ error: `项目仍有 ${activeJobs} 个排队或运行中的任务，请先取消或等待完成后再删除` });
+    }
     // 1) 清项目工作区表
     await Promise.all(
       WORKSPACE_MODELS.map((m) => (prisma as any)[m].deleteMany({ where: { projectId } })),
