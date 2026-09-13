@@ -61,8 +61,10 @@ export async function suggestTemplateFields(prisma: PrismaClient, projectId: num
   validateTemplateSelection(current.candidates, selection as unknown as TemplateSelection);
   return { ...current, selection };
 }
-export async function applyTemplateFields(prisma: PrismaClient, projectId: number, userId: number, id: string, expectedVersion: number, selection: TemplateSelection) {
+export async function applyTemplateFields(prisma: PrismaClient, projectId: number, userId: number, id: string, expectedVersion: number, selection: TemplateSelection, signal?: AbortSignal) {
+  if (signal?.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留');
   return parseQueue.run(async () => {
+    if (signal?.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留');
     const { root, workspace, manifest } = await readManifest(prisma, projectId, userId, id);
     if (manifest.version !== expectedVersion) throw new ApiError(409, '模板已被更新，请刷新字段后重试');
     validateTemplateSelection(manifest.candidates, selection);
@@ -77,5 +79,5 @@ export async function applyTemplateFields(prisma: PrismaClient, projectId: numbe
     await fs.rename(path.join(workspace, `manifest-${revision}.json`), path.join(workspace, 'manifest.json'));
     await prisma.technicalPlanMeta.update({ where: { projectId }, data: { templateExtractionJson: result } });
     return result;
-  });
+  }, undefined, signal);
 }

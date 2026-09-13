@@ -14,5 +14,8 @@ export async function jobRoutes(app: FastifyInstance) {
   });
   app.get('/jobs/:id', async (req) => jobs.dto(await jobs.get((req.params as { id: string }).id, getUserId(req))));
   app.post('/jobs/:id/retry', async (req) => jobs.retry((req.params as { id: string }).id, getUserId(req)));
-  app.post('/jobs/:id/cancel', async (req) => { await jobs.cancel((req.params as { id: string }).id, getUserId(req)); return { success: true }; });
+  app.post('/jobs/:id/cancel', async (req) => {
+    const job = await jobs.cancel((req.params as { id: string }).id, getUserId(req));
+    return { success: true, ...job };
+  });
 }

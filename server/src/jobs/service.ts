@@ -32,19 +32,37 @@ export class JobService {
     const controller = new AbortController(); this.active.set(job.id, controller);
     const scope = job.projectId ? { kind: 'project' as const, projectId: job.projectId, userId: job.userId, requiredModules: job.kind.startsWith('business-') ? ['knowledge-base'] : [] } : { kind: 'shared' as const, userId: job.userId };
     const update: JobUpdate = async (status, progress) => {
-      if (controller.signal.aborted) throw new ApiError(409, '任务已取消');
-      const current = await this.prisma.backgroundJob.update({ where: { id: job.id }, data: { status, progress } });
-      if (job.projectId) eventBus.emit(String(job.projectId), 'jobs', this.dto(current));
+      if (controller.signal.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留');
+      const current = await this.prisma.backgroundJob.findUnique({ where: { id: job.id } });
+      if (!current || ['cancelled', 'cancelling', 'success', 'error'].includes(current.status)) {
+        throw new ApiError(409, '任务已取消，原件和成功版本保留');
+      }
+      const next = await this.prisma.backgroundJob.update({ where: { id: job.id }, data: { status, progress } });
+      if (job.projectId) eventBus.emit(String(job.projectId), 'jobs', this.dto(next));
     };
     void withProcessingScope(scope, async () => {
       try {
+        if (controller.signal.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留');
         await update('running', 1);
         await this.authorize(job, job.userId);
+        if (controller.signal.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留');
         const result = await this.runners.get(job.kind)!(job, update, controller.signal);
-        if (controller.signal.aborted) throw new ApiError(409, '任务已取消');
-        await this.prisma.backgroundJob.update({ where: { id: job.id }, data: { result: JSON.parse(JSON.stringify(result ?? null)), status: 'success', progress: 100, error: null } });
+        if (controller.signal.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留');
+        const published = await this.prisma.backgroundJob.updateMany({
+          where: { id: job.id, status: { in: ['running', 'cancelling'] } },
+          data: { result: JSON.parse(JSON.stringify(result ?? null)), status: 'success', progress: 100, error: null },
+        });
+        if (!published.count && controller.signal.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留');
       } catch (error) {
-        await this.prisma.backgroundJob.updateMany({ where: { id: job.id }, data: { status: controller.signal.aborted ? 'cancelled' : 'error', error: error instanceof Error ? error.message.slice(0, 500) : '任务失败，可重试' } });
+        const cancelled = controller.signal.aborted || (error instanceof ApiError && error.statusCode === 409 && /取消/.test(error.message));
+        const current = await this.prisma.backgroundJob.updateMany({
+          where: { id: job.id, status: { in: ['queued', 'running', 'cancelling'] } },
+          data: { status: cancelled ? 'cancelled' : 'error', error: error instanceof Error ? error.message.slice(0, 500) : '任务失败，可重试' },
+        });
+        if (current.count && job.projectId) {
+          const row = await this.prisma.backgroundJob.findUnique({ where: { id: job.id } });
+          if (row) eventBus.emit(String(job.projectId), 'jobs', this.dto(row));
+        }
       } finally { this.active.delete(job.id); }
     }).catch(() => undefined);
   }
@@ -63,8 +81,17 @@ export class JobService {
     return this.dto(await this.get(id, actorId));
   }
   async cancel(id: string, actorId: number) {
-    await this.get(id, actorId); this.active.get(id)?.abort();
-    await this.prisma.backgroundJob.updateMany({ where: { id, status: { in: ['queued', 'running'] } }, data: { status: 'cancelled', error: '已取消，原件和成功版本保留' } });
+    await this.get(id, actorId);
+    const active = this.active.get(id);
+    if (active) {
+      await this.prisma.backgroundJob.updateMany({ where: { id, status: { in: ['queued', 'running'] } }, data: { status: 'cancelling', error: '正在取消，原件和成功版本保留' } });
+      active.abort();
+      const row = await this.prisma.backgroundJob.findUniqueOrThrow({ where: { id } });
+      if (row.projectId) eventBus.emit(String(row.projectId), 'jobs', this.dto(row));
+      return this.dto(row);
+    }
+    await this.prisma.backgroundJob.updateMany({ where: { id, status: { in: ['queued', 'running', 'cancelling'] } }, data: { status: 'cancelled', error: '已取消，原件和成功版本保留' } });
+    return this.dto(await this.get(id, actorId));
   }
   async recover() {
     await this.prisma.documentSource.updateMany({ where: { status: 'staging' }, data: { status: 'error' } });

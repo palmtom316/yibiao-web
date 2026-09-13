@@ -110,7 +110,7 @@ export async function parseSource(prisma: PrismaClient, sourceId: string, userId
       if (didPublish) await fs.rm(resolveInside(getDataDir(), published), { recursive: true, force: true });
       throw error;
     } finally { await fs.rm(staging, { recursive: true, force: true }).catch(() => undefined); }
-  }, () => { void progress('queued', 0).catch(() => undefined); });
+  }, () => { void progress('queued', 0).catch(() => undefined); }, signal);
 }
 
 export async function loadAuthorizedAsset(prisma: PrismaClient, userId: number, assetId: string, projectId?: number) {

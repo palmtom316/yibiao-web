@@ -44,10 +44,14 @@ export async function knowledgeBaseRoutes(app: FastifyInstance, _opts: FastifyPl
   };
 
   const jobs = (app as unknown as { jobs: JobService }).jobs;
-  jobs.register('knowledge-prepare', async (job) => {
+  jobs.register('knowledge-prepare', async (job, _update, signal) => {
+    if (signal.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留');
     const config = bindConfigScope(await buildMerged(prisma, job.userId), { kind: 'shared', userId: job.userId });
     return withConfigScope(config, async () => {
-      const result = (job.input as any).retry ? await retryDocument(store, job.knowledgeDocumentId!, job.userId) : await prepareDocument(store, job.knowledgeDocumentId!, job.userId);
+      const result = (job.input as any).retry
+        ? await retryDocument(store, job.knowledgeDocumentId!, job.userId, signal)
+        : await prepareDocument(store, job.knowledgeDocumentId!, job.userId, signal);
+      if (signal.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留');
       if (!result.success) throw new ApiError(422, result.document?.error || '文档解析失败，原件保留');
       kickoffExtraction(job.knowledgeDocumentId!, String((job.input as any).eventProjectId || ''), config);
       return { ...result, message: '原件解析完成，知识抽取在后台继续' };

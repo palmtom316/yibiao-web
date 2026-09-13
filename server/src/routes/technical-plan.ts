@@ -15,15 +15,16 @@ import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fast
 import type { PrismaClient } from '@prisma/client';
 import { getProjectId } from '../auth/middleware';
 import { createTechnicalPlanStore } from '../technical-plan/store';
+import { ApiError } from '../security/access';
 
 export async function technicalPlanRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
   const store = createTechnicalPlanStore(prisma);
   const jobs = (app as unknown as { jobs: JobService }).jobs;
-  jobs.register('template-extract', (job) => extractTemplate(prisma, job.projectId!, job.userId, (job.input as any).sourceId));
+  jobs.register('template-extract', (job, _update, signal) => extractTemplate(prisma, job.projectId!, job.userId, (job.input as any).sourceId, undefined, signal));
   app.post('/technical-plan/extract-template', async (req, reply) => reply.code(202).send(await jobs.start({ kind: 'template-extract', projectId: getProjectId(req), userId: getUserId(req), input: (req.body || {}) as any })));
-  jobs.register('template-field-suggestions', (job) => suggestTemplateFields(prisma, job.projectId!, job.userId, (job.input as any).artifactId));
-  jobs.register('template-field-apply', (job) => { const input = job.input as any; return applyTemplateFields(prisma, job.projectId!, job.userId, input.artifactId, input.version, input.selection as TemplateSelection); });
+  jobs.register('template-field-suggestions', (job, _update, signal) => { if (signal.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留'); return suggestTemplateFields(prisma, job.projectId!, job.userId, (job.input as any).artifactId); });
+  jobs.register('template-field-apply', (job, _update, signal) => { if (signal.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留'); const input = job.input as any; return applyTemplateFields(prisma, job.projectId!, job.userId, input.artifactId, input.version, input.selection as TemplateSelection, signal); });
   app.get('/technical-plan/templates/:id/fields', (req) => getTemplateFields(prisma, getProjectId(req), getUserId(req), (req.params as { id: string }).id));
   for (const [action, kind] of [['suggest', 'template-field-suggestions'], ['apply', 'template-field-apply']]) {
     app.post(`/technical-plan/templates/:id/fields/${action}`, async (req, reply) => reply.code(202).send(await jobs.start({ kind: kind!, projectId: getProjectId(req), userId: getUserId(req), input: { ...(req.body as any), artifactId: (req.params as { id: string }).id } })));

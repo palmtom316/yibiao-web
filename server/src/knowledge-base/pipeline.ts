@@ -1,4 +1,5 @@
 import { persistSource, parseSource } from '../document/sources';
+import { ApiError } from '../security/access';
 // 知识库文档处理管线（P4 范围：copy_source → convert_markdown → build_blocks 三步）。
 // 忠实移植自 client/electron/services/knowledgeBaseService.cjs 的 prepareDocument 前三步 +
 // uploadDocuments 的文档创建逻辑，砍掉步骤 4-9（LLM 抽取/匹配，留 P6）。
@@ -44,6 +45,10 @@ async function pathExists(p: string): Promise<boolean> {
 
 function stepCanReuse(step: { status: string } | null, hasArtifact: boolean): boolean {
   return Boolean(hasArtifact && (!step || step.status === 'success'));
+}
+
+function assertNotAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留');
 }
 
 // uploadDocuments 的单文件创建逻辑（移植自桌面 1392-1419）。
@@ -108,8 +113,10 @@ export async function prepareDocument(
   store: KnowledgeBaseStore,
   documentId: string,
   userId?: number,
+  signal?: AbortSignal,
 ): Promise<{ success: boolean; document: Awaited<ReturnType<KnowledgeBaseStore['getDocument']> > }> {
   try {
+    assertNotAborted(signal);
     const row = await store.getDocumentRow(documentId);
     const sourcePath = kb.resolve(row.sourcePath);
     const markdownPath = kb.resolve(row.markdownPath);
@@ -159,7 +166,8 @@ export async function prepareDocument(
       await runStep(store, documentId, 'convert_markdown', async () => {
         let source = await store.db.documentSource.findFirst({ where: { knowledgeDocumentId: documentId }, orderBy: { createdAt: 'desc' } });
         if (!source && userId) source = await persistSource(store.db, { knowledgeDocumentId: documentId }, userId, row.fileName, 'application/octet-stream', await fs.readFile(sourcePath));
-        const result = source && userId ? await parseSource(store.db, source.id, userId) : await parseDocument(sourcePath);
+        assertNotAborted(signal);
+        const result = source && userId ? await parseSource(store.db, source.id, userId, async () => {}, signal) : await parseDocument(sourcePath);
         const parsed = stripMarkdownFence(result.markdown.trim());
         if (!parsed) throw new Error('文档未解析出有效 Markdown 内容');
         await fs.writeFile(markdownPath, `${parsed}\n`, 'utf-8');
@@ -170,6 +178,7 @@ export async function prepareDocument(
       if (!markdown) throw new Error('文档未解析出有效 Markdown 内容');
     }
 
+    assertNotAborted(signal);
     // step 3: build_blocks
     const blocks = await store.readBlocks(documentId);
     const filteredBlocks = await store.readFilteredBlocks(documentId);
@@ -223,7 +232,9 @@ export async function retryDocument(
   store: KnowledgeBaseStore,
   documentId: string,
   userId?: number,
+  signal?: AbortSignal,
 ): Promise<{ success: boolean; message: string; document: Awaited<ReturnType<KnowledgeBaseStore['getDocument']> > }> {
+  assertNotAborted(signal);
   const document = await store.getDocument(documentId);
   if (document.status !== 'error') {
     return { success: false, message: '只有解析失败的文档可以重试', document };
@@ -232,7 +243,7 @@ export async function retryDocument(
   if (!(await pathExists(kb.resolve(row.sourcePath)))) {
     return { success: false, message: '原始文件不存在，请重新上传', document };
   }
-  const result = await prepareDocument(store, documentId, userId);
+  const result = await prepareDocument(store, documentId, userId, signal);
   return {
     success: result.success,
     message: result.success ? '已重新开始解析' : (result.document.message || '重试失败'),

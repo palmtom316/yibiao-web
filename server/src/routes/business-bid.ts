@@ -19,9 +19,9 @@ export async function businessBidRoutes(app: FastifyInstance) {
   const { prisma, jobs } = app as unknown as { prisma: PrismaClient; jobs: JobService };
   const store = createBusinessStore(prisma);
   app.addHook('onRequest', createRequireModule(prisma, 'knowledge-base'));
-  jobs.register('business-extract', (job) => store.extract(job, getAiService()));
-  jobs.register('business-confirm', (job, update) => exportQueue.run(() => { const input = job.input as any; return store.confirm(job.projectId!, job.userId, input.requirementId, input); }, () => { void update('queued', 0).catch(() => undefined); }));
-  jobs.register('business-revision', (job) => store.createRevision(job.projectId!, job.userId, job.id));
+  jobs.register('business-extract', (job, _update, signal) => { if (signal.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留'); return store.extract(job, getAiService()); });
+  jobs.register('business-confirm', (job, update, signal) => exportQueue.run(() => { if (signal.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留'); const input = job.input as any; return store.confirm(job.projectId!, job.userId, input.requirementId, input); }, () => { void update('queued', 0).catch(() => undefined); }, signal));
+  jobs.register('business-revision', (job, _update, signal) => { if (signal.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留'); return store.createRevision(job.projectId!, job.userId, job.id); });
   jobs.register('business-package', (job, update, signal) => { const input = job.input as any; return createBusinessPackage(prisma, job.projectId!, job.userId, input.revisionId, input.draft === true, update, signal); });
   app.get('/business-bid', (req) => store.workspace(getProjectId(req), getUserId(req)));
   app.put('/business-bid/deadline', (req) => store.setDeadline(getProjectId(req), getUserId(req), (req.body as any)?.bidDeadline));

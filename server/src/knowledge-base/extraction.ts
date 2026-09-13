@@ -13,6 +13,7 @@ import type { AiService } from '../ai/service';
 import type { KnowledgeBaseStore } from './store';
 import type { DocumentDto } from './store';
 import { eventBus } from '../events/bus';
+import { ApiError } from '../security/access';
 import { registerActiveExtraction, unregisterActiveExtraction } from './registry';
 import {
   buildInitialItemMessages,
@@ -79,6 +80,7 @@ export interface RunKnowledgeExtractionParams {
   documentId: string;
   batchSize?: number;
   force?: boolean;
+  signal?: AbortSignal;
 }
 
 // 推进度事件：写 DB + 经 EventBus 发 {document} 给该用户的 'kb-document' 订阅者。
@@ -115,10 +117,14 @@ async function runStep<T>(
 export async function runKnowledgeExtraction(params: RunKnowledgeExtractionParams): Promise<void> {
   const { store, aiService, config, projectId, documentId } = params;
   const force = Boolean(params.force);
+  const assertActive = () => {
+    if (params.signal?.aborted) throw new ApiError(409, '任务已取消，原件和成功版本保留');
+  };
   const batchSize = Math.max(1, Math.min(100, Math.floor(Number(params.batchSize ?? DEFAULT_BATCH_SIZE) || DEFAULT_BATCH_SIZE)));
 
   registerActiveExtraction(documentId);
   try {
+    assertActive();
     const document = await store.getDocument(documentId);
     if (force) {
       // 重跑匹配：清 match_batches 及之后（recover_missing/save_result）的步骤与产物。
@@ -138,6 +144,7 @@ export async function runKnowledgeExtraction(params: RunKnowledgeExtractionParam
         await store.saveDocumentStep(documentId, 'extract_first_items', { status: 'success', result: { items: firstItems } });
       }
     } else {
+      assertActive();
       await store.clearDocumentProcessingFromStep(documentId, 'extract_first_items');
       await emitProgress(store, projectId, documentId, {
         status: 'extracting',
@@ -169,6 +176,7 @@ export async function runKnowledgeExtraction(params: RunKnowledgeExtractionParam
         await store.saveDocumentStep(documentId, 'extract_supplement_items', { status: 'success', result: { items: supplementItems } });
       }
     } else {
+      assertActive();
       await store.clearDocumentProcessingFromStep(documentId, 'extract_supplement_items');
       await emitProgress(store, projectId, documentId, {
         status: 'extracting',
@@ -200,6 +208,7 @@ export async function runKnowledgeExtraction(params: RunKnowledgeExtractionParam
         await store.saveDocumentStep(documentId, 'merge_candidates', { status: 'success', result: { candidate_item_count: candidateItems.length } });
       }
     } else {
+      assertActive();
       await store.clearDocumentProcessingFromStep(documentId, 'merge_candidates');
       const mergedItems = mergeCandidateItems(firstItems as CandidateItem[], supplementItems as CandidateItem[]);
       if (!mergedItems.length) throw new Error('AI 未提取出可用知识条目');
@@ -238,6 +247,7 @@ export async function runKnowledgeExtraction(params: RunKnowledgeExtractionParam
     });
 
     for (let index = 0; index < batches.length; index += 1) {
+      assertActive();
       const batchIndex = index + 1;
       const batchItemIds = batches[index].map((item) => item.id);
       const savedBatch = await store.getMatchBatch(documentId, batchIndex);
