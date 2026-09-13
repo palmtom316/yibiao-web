@@ -1,0 +1,4 @@
+
+> openbidkit-yibiao-web-server@2.0.0 build /home/palmtom/projects/yibiao-web/server
+> tsc -p tsconfig.json
+

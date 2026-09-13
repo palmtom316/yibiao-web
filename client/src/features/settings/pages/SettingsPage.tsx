@@ -1553,27 +1553,28 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>Base URL</strong>
-                <span>OpenAI Like 接口地址，用于文本生成和分析任务</span>
+                <span>OpenAI Like 接口地址，用于文本生成和分析任务{!isAdmin && '（仅管理员可修改）'}</span>
               </div>
               <input
                 type="text"
                 value={state.textModel.base_url}
                 placeholder={currentTextProviderDefault.base_url || '例如 https://api.openai.com/v1'}
                 onChange={(event) => updateTextModelConfig({ base_url: event.target.value }, { clearModels: true })}
-                disabled={state.textModel.provider !== 'custom'}
+                disabled={!isAdmin || state.textModel.provider !== 'custom'}
               />
             </label>
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>API Key</strong>
                 {isAdmin && state.textModel.configured && <button type="button" className="secondary-button" onClick={() => void clearSecret(`text_model_profiles.${state.textModel.provider}.api_key`)}>清除已存密钥</button>}
-                <span>密钥保存在服务器；留空保留原值，填写新值后保存即可替换</span>
+                <span>密钥保存在服务器；留空保留原值，填写新值后保存即可替换{!isAdmin && '（仅管理员可修改）'}</span>
               </div>
               <InputWithAction
                 type="password"
                 value={state.textModel.api_key}
                 placeholder={state.textModel.configured ? '已配置，留空保留原密钥' : '请输入文本模型 API Key'}
                 onChange={(event) => updateTextModelConfig({ api_key: event.target.value }, { clearModels: true })}
+                disabled={!isAdmin}
                 actionLabel="获取"
                 actionTitle="打开当前服务商的 API Key 获取页面"
                 actionDisabled={!textProviderApiKeyUrls[state.textModel.provider]}
@@ -1590,6 +1591,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                   <select
                     value={state.textModel.model_name}
                     onChange={(event) => updateTextModelConfig({ model_name: event.target.value })}
+                    disabled={!isAdmin}
                   >
                     {textModels.map((model) => <option value={model} key={model}>{model}</option>)}
                   </select>
@@ -1599,18 +1601,19 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                     value={state.textModel.model_name}
                     placeholder="例如 deepseek-chat"
                     onChange={(event) => updateTextModelConfig({ model_name: event.target.value })}
+                    disabled={!isAdmin}
                   />
                 )}
                 <button
                   type="button"
                   className="inline-action"
                   onClick={fetchTextModels}
-                  disabled={loadingModels === 'text'}
+                  disabled={!isAdmin || loadingModels === 'text'}
                 >
                   {loadingModels === 'text' && <span className="inline-spinner" aria-hidden="true" />}
                   {loadingModels === 'text' ? '获取中' : '获取'}
                 </button>
-                <button type="button" className="inline-action" onClick={testTextConfig} disabled={testingTextModel}>
+                <button type="button" className="inline-action" onClick={testTextConfig} disabled={!isAdmin || testingTextModel}>
                   {testingTextModel && <span className="inline-spinner" aria-hidden="true" />}
                   {testingTextModel ? '测试中' : '测试'}
                 </button>
@@ -1712,27 +1715,28 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>Base URL</strong>
-                <span>{getImageBaseUrlDescription(state.imageModel.provider)}</span>
+                <span>{getImageBaseUrlDescription(state.imageModel.provider)}{!isAdmin && '（仅管理员可修改）'}</span>
               </div>
               <input
                 type="text"
                 value={state.imageModel.base_url || ''}
                 placeholder={state.imageModel.provider === 'custom' ? 'https://api.example.com/v1' : imageProviderDefaults[state.imageModel.provider].base_url}
                 onChange={(event) => updateImageModelConfig({ base_url: event.target.value }, { clearModels: true })}
-                disabled={state.imageModel.provider !== 'custom'}
+                disabled={!isAdmin || state.imageModel.provider !== 'custom'}
               />
             </label>
             {isAdmin && state.imageModel.configured && <button type="button" className="secondary-button" onClick={() => void clearSecret(`image_model_profiles.${state.imageModel.provider}.api_key`)}>清除已存生图密钥</button>}
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>API Key</strong>
-                <span>{getImageApiKeyDescription(state.imageModel.provider)}</span>
+                <span>{getImageApiKeyDescription(state.imageModel.provider)}{!isAdmin && '（仅管理员可修改）'}</span>
               </div>
               <InputWithAction
                 type="password"
                 value={state.imageModel.api_key}
                 placeholder="请输入生图服务 API Key"
                 onChange={(event) => updateImageModelConfig({ api_key: event.target.value }, { clearModels: true })}
+                disabled={!isAdmin}
                 actionLabel="获取"
                 actionTitle="打开当前生图服务商的 API Key 获取页面"
                 onAction={() => { void openImageProviderApiKeyPage(); }}
@@ -1748,6 +1752,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                   <select
                     value={state.imageModel.model_name}
                     onChange={(event) => updateImageModelConfig({ model_name: event.target.value })}
+                    disabled={!isAdmin}
                   >
                     {imageModels.map((model) => <option value={model} key={model}>{model}</option>)}
                   </select>
@@ -1757,18 +1762,19 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                     value={state.imageModel.model_name}
                     placeholder={getImageModelPlaceholder(state.imageModel.provider)}
                     onChange={(event) => updateImageModelConfig({ model_name: event.target.value })}
+                    disabled={!isAdmin}
                   />
                 )}
                 <button
                   type="button"
                   className="inline-action"
                   onClick={fetchImageModels}
-                  disabled={loadingModels === 'image'}
+                  disabled={!isAdmin || loadingModels === 'image'}
                 >
                   {loadingModels === 'image' && <span className="inline-spinner" aria-hidden="true" />}
                   {loadingModels === 'image' ? '获取中' : '获取'}
                 </button>
-                <button type="button" className="inline-action" onClick={testImageConfig} disabled={testingImageModel}>
+                <button type="button" className="inline-action" onClick={testImageConfig} disabled={!isAdmin || testingImageModel}>
                   {testingImageModel && <span className="inline-spinner" aria-hidden="true" />}
                   {testingImageModel ? '测试中' : '测试'}
                 </button>

@@ -1,0 +1,9 @@
+date=2026-09-13T22:01:36+08:00
+head=c1bfe9f644580c37181a6d3be2cd32eb4d86f8f4
+branch=fix/pve-solo-review-20260913
+node=v22.23.2
+npm=10.9.3
+pnpm=10.17.1
+pg_container=yibiao-remediation-pg
+pg_port=127.0.0.1:55432
+pg_db=yibiao_test

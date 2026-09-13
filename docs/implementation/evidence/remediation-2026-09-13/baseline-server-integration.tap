@@ -1,0 +1,101 @@
+TAP version 13
+# Subtest: manual business confirmation, immutable source copy, technical truth and streaming Word/ZIP manifest
+ok 1 - manual business confirmation, immutable source copy, technical truth and streaming Word/ZIP manifest
+  ---
+  duration_ms: 1531.042408
+  type: 'test'
+  ...
+# Subtest: snapshot narrative images and same-name attachments survive archive, unlink and physical source deletion; incomplete copies never publish
+ok 2 - snapshot narrative images and same-name attachments survive archive, unlink and physical source deletion; incomplete copies never publish
+  ---
+  duration_ms: 2148.964044
+  type: 'test'
+  ...
+# Subtest: snapshot history works for empty projects and asset-only snapshots
+ok 3 - snapshot history works for empty projects and asset-only snapshots
+  ---
+  duration_ms: 1004.59281
+  type: 'test'
+  ...
+# Subtest: business re-extraction preserves human revisions and a completed extraction job is idempotent
+ok 4 - business re-extraction preserves human revisions and a completed extraction job is idempotent
+  ---
+  duration_ms: 1718.803093
+  type: 'test'
+  ...
+# Subtest: migration baseline, repeat initialization, old data, drift and failure gates on real PostgreSQL
+    # Subtest: empty database initializes; repeated initialization preserves password and edited docs
+    ok 1 - empty database initializes; repeated initialization preserves password and edited docs
+      ---
+      duration_ms: 2969.767798
+      type: 'test'
+      ...
+    # Subtest: db-push-style existing database refuses deploy until drift checked and baseline resolved
+    ok 2 - db-push-style existing database refuses deploy until drift checked and baseline resolved
+      ---
+      duration_ms: 5905.491785
+      type: 'test'
+      ...
+    # Subtest: schema drift is refused
+    ok 3 - schema drift is refused
+      ---
+      duration_ms: 755.700735
+      type: 'test'
+      ...
+    # Subtest: failed migration exits initialization before seed and leaves no committed artifact
+    ok 4 - failed migration exits initialization before seed and leaves no committed artifact
+      ---
+      duration_ms: 744.12924
+      type: 'test'
+      ...
+    1..4
+ok 5 - migration baseline, repeat initialization, old data, drift and failure gates on real PostgreSQL
+  ---
+  duration_ms: 10455.348822
+  type: 'test'
+  ...
+# Subtest: originals, immutable image parses, authorized export and failure preservation on PostgreSQL
+ok 6 - originals, immutable image parses, authorized export and failure preservation on PostgreSQL
+  ---
+  duration_ms: 3728.163831
+  type: 'test'
+  ...
+# Subtest: knowledge reference reads never mutate the caller processing scope
+ok 7 - knowledge reference reads never mutate the caller processing scope
+  ---
+  duration_ms: 973.519749
+  type: 'test'
+  ...
+# Subtest: PostgreSQL knowledge search covers 0/100/101/235, Chinese, file names and page fallback
+ok 8 - PostgreSQL knowledge search covers 0/100/101/235, Chinese, file names and page fallback
+  ---
+  duration_ms: 960.680289
+  type: 'test'
+  ...
+# Subtest: ledger relations, decimal precision, validity boundaries, optimistic writes and source protection
+ok 9 - ledger relations, decimal precision, validity boundaries, optimistic writes and source protection
+  ---
+  duration_ms: 1062.969405
+  type: 'test'
+  ...
+# Subtest: legacy migration requires explicit identity mapping and is repeatable without deleting originals
+ok 10 - legacy migration requires explicit identity mapping and is repeatable without deleting originals
+  ---
+  duration_ms: 983.73905
+  type: 'test'
+  ...
+# Subtest: project plus shared processing requires both policies and refreshes revoked modules
+ok 11 - project plus shared processing requires both policies and refreshes revoked modules
+  ---
+  duration_ms: 899.923036
+  type: 'test'
+  ...
+1..11
+# tests 15
+# suites 0
+# pass 15
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 14643.709424

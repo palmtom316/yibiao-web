@@ -23,7 +23,21 @@
 ## 验证
 
 - `pnpm run typecheck` 通过。
-- `pnpm test` 179 通过，含 PDF worker、查重 bounded parse、image-size 魔数拒绝。
-- 未在本提交构建 Linux 镜像；原生 `sharp` 0.35.4 需在最终镜像构建中复核。
+- `pnpm test` 185 通过、17 项 PostgreSQL 16 集成测试通过（`evidence/remediation-2026-09-13/post-server-*.tap`）。
+- `pnpm audit --prod --json` = 6 条（`post-server-audit.json`）；`npm audit --omit=dev` = 0（`post-client-audit.json`）。
+- 未在本轮构建 Linux 镜像；原生 `sharp` 0.35.4 / `pdfjs-dist` 6.2.108 需在最终镜像构建中复核。
 
 xlsx / image-size / adm-zip symlink / Prisma deepmerge-ts 不能标已关闭。
+
+## 行为变化：PNG chunk CRC 改为硬校验（需知悉）
+
+`sharp` 0.34.5 → 0.35.4 带来 libvips 8.18，PNG 读取对 chunk CRC 由「宽松接受」变为**硬校验**。
+
+- 触发路径：文档解析 worker 内 `sharp(...).png()` 对嵌入图片重编码。
+- 影响：CRC 损坏的 PNG 会被拒绝，产生显式告警（`flagshipng: libpng read error`），该图片不产出资源；
+  文档正文与其余资源照常解析，不会静默丢内容、也不会失败整个文档。
+- 证据：仓库原先有三个测试夹具使用**IDAT CRC 错误**的 1×1 PNG，旧解码器静默接受、新解码器拒绝。
+  已统一替换为校验通过的夹具 `server/src/test/png.ts`，并由 `document/sources.integration.test.ts`、
+  `business-bid/lifecycle.integration.test.ts` 真实跑通「DOCX 嵌入图片 → 解析出资源 → 授权导出 → 校验 SHA-256」。
+- 结论：对**合法**Office 文件无退化（真实文件 PNG 带正确 CRC）；对**损坏**图片由静默接受变为显式告警，
+  属于更严格也更安全的行为，不视为功能退化。

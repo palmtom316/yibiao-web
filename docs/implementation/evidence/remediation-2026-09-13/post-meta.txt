@@ -1,0 +1,52 @@
+修订验证元数据（2026-09-13 / PVE 单人测试准备）
+=============================================
+
+仓库        : /home/palmtom/projects/yibiao-web (https://github.com/palmtom316/yibiao-web)
+审核基线    : 5a926ae64fc5983a3219bd3f9aa10cc113af144a（代码）
+审核文档基线: e7c9119（主报告 + 证据）
+修订起点    : c1bfe9f（任务书提交）
+修订分支    : fix/pve-solo-review-20260913
+本轮代码提交: 89890bdfd3159bc6e8867936b7a36841e65dd9d3
+              fix(O02,O07,O08,O09,O11): land required optimisations and restore image fixtures
+前置修复提交: R01/R02、R06/R05、R07/R11、R08、R12、R03/R04/R09/R10（见 CODE-REVIEW-2026-09-13-FIXES.md）
+
+工具链（与本轮实际运行一致）
+--------------------------
+node        : v22.23.2（.node-version）
+npm         : 10.9.3（client 使用 npm；client/package.json 声明 packageManager=npm）
+pnpm        : 10.17.1（server 使用 pnpm）
+PostgreSQL  : 16-bookworm（独立测试实例 yibiao-remediation-pg，127.0.0.1:55432，库名前缀 yibiao_test_*）
+测试隔离    : 每个集成测试自建 yibiao_test_<uuid> 数据库，结束 DROP；合成资料写入临时 YIBIAO_DATA_DIR
+
+测试结果（post-*.tap 为原始 TAP 证据）
+------------------------------------
+套件                 基线(208)   本轮(232)   文件
+server 单元            165         185       post-server-unit.tap
+server 集成             15          17       post-server-integration.tap
+client 单元             28          30       post-client-unit.tap
+失败                     0           0       —
+新增来源: R01/R02 处理出口、R03 SSE 策略、R04 末位管理员、R05 来源失效、R06 staging 发布、
+          R07 错误落库、R08 有界查重、R09 偏好读回、R10 诊断筛选（含真实 PG 集成）、
+          R11 取消语义、R12 依赖与 image-size 魔数、O07 局部日期跨字段、O09 占位 JWT_SECRET。
+
+依赖审计（post-*-audit.json）
+----------------------------
+server: 6 条（high 5 / moderate 1）——xlsx×2、image-size×2、deepmerge-ts×1、adm-zip×1，
+        均为「无可用修复版本」的残留项，逐个记录可达路径与限制措施（见 DEPENDENCY-AUDIT-2026-09-13.md）。
+        修订前为 36 条。
+client: 0 条（npm audit --omit=dev）。
+
+构建体积（post-client-build.log.txt）
+------------------------------------
+入口 JS : 1,163.97 kB / gzip 356.76 kB（修订前记录 1,161 kB / gzip 356 kB）
+CSS     : 363.42 kB / gzip 55.05 kB（修订前记录 363 kB / gzip 55 kB）
+JS 分块 : 61 个（Mermaid 各图表、katex、cytoscape 已按需分块）
+
+未在本轮验证（如实记录）
+----------------------
+- 未构建 Linux 目标镜像：Dockerfile/app 镜像内原生 sharp 0.35.4、pdfjs-dist 6.2.108 的
+  Node 22 运行需在镜像构建步骤复核（本轮只验证宿主 Node 22.23.2）。
+- 未运行真实 AI/OCR 服务：处理出口用被拦截的网络发送验证，未调用外部模型。
+- 未执行 deploy/backup/backup.py 的完整 docker 备份：仅验证预检（Python 版本、空间、
+  --save-images 预留）与失败阶段报告；完整备份需目标 VM。
+- 未在浏览器中验证 SSE 自动重连：client 侧以策略单测覆盖（ssePolicy.test.ts）。

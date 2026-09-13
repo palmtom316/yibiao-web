@@ -1,0 +1,190 @@
+TAP version 13
+# Subtest: 资源下载模块不再出现在主菜单或子菜单中
+ok 1 - 资源下载模块不再出现在主菜单或子菜单中
+  ---
+  duration_ms: 0.587831
+  type: 'test'
+  ...
+# Subtest: 商务入口提供响应清单且不再显示计算器占位
+ok 2 - 商务入口提供响应清单且不再显示计算器占位
+  ---
+  duration_ms: 0.250564
+  type: 'test'
+  ...
+# Subtest: R09 waits for config and restores a non-first project
+ok 3 - R09 waits for config and restores a non-first project
+  ---
+  duration_ms: 0.972064
+  type: 'test'
+  ...
+# Subtest: 客户端系统名称 fallback 和设置占位文案使用新默认名称
+ok 4 - 客户端系统名称 fallback 和设置占位文案使用新默认名称
+  ---
+  duration_ms: 1.061639
+  type: 'test'
+  ...
+# Subtest: 导航意图契约包含项目、招标指纹和标段
+ok 5 - 导航意图契约包含项目、招标指纹和标段
+  ---
+  duration_ms: 0.505528
+  type: 'test'
+  ...
+# Subtest: 识别医院采购人自称并返回证据片段
+ok 6 - 识别医院采购人自称并返回证据片段
+  ---
+  duration_ms: 1.595099
+  type: 'test'
+  ...
+# Subtest: 招标文件出现我方时保留在我方组但标记需确认
+ok 7 - 招标文件出现我方时保留在我方组但标记需确认
+  ---
+  duration_ms: 0.241123
+  type: 'test'
+  ...
+# Subtest: 默认投标人侧代称包含成交人
+ok 8 - 默认投标人侧代称包含成交人
+  ---
+  duration_ms: 0.131794
+  type: 'test'
+  ...
+# Subtest: 已有替换表优先，不重复加入已存在代称
+ok 9 - 已有替换表优先，不重复加入已存在代称
+  ---
+  duration_ms: 0.209091
+  type: 'test'
+  ...
+# Subtest: 已有替换表但本项目尚未确认过主体时仍应主动提示
+ok 10 - 已有替换表但本项目尚未确认过主体时仍应主动提示
+  ---
+  duration_ms: 0.115231
+  type: 'test'
+  ...
+# Subtest: 进入正文生成前只接受已确认状态，稍后处理仍需拦截
+ok 11 - 进入正文生成前只接受已确认状态，稍后处理仍需拦截
+  ---
+  duration_ms: 0.11411
+  type: 'test'
+  ...
+# Subtest: R03 clean EOF reconnects only for the current project connection
+ok 12 - R03 clean EOF reconnects only for the current project connection
+  ---
+  duration_ms: 0.566208
+  type: 'test'
+  ...
+# Subtest: 前端密码规则与服务端四类规则一致
+ok 13 - 前端密码规则与服务端四类规则一致
+  ---
+  duration_ms: 0.989303
+  type: 'test'
+  ...
+# Subtest: 只接受完整的强制改密响应
+ok 14 - 只接受完整的强制改密响应
+  ---
+  duration_ms: 0.219343
+  type: 'test'
+  ...
+# Subtest: 只接受具备完整用户身份字段的正式登录响应
+ok 15 - 只接受具备完整用户身份字段的正式登录响应
+  ---
+  duration_ms: 0.130304
+  type: 'test'
+  ...
+# Subtest: 仅当前且未过期的受限会话可以完成改密
+ok 16 - 仅当前且未过期的受限会话可以完成改密
+  ---
+  duration_ms: 0.096323
+  type: 'test'
+  ...
+# Subtest: 只有全部规则通过且两次密码一致时允许提交
+ok 17 - 只有全部规则通过且两次密码一致时允许提交
+  ---
+  duration_ms: 0.192168
+  type: 'test'
+  ...
+# Subtest: 强制改密关闭事件始终被阻止
+ok 18 - 强制改密关闭事件始终被阻止
+  ---
+  duration_ms: 0.123713
+  type: 'test'
+  ...
+# Subtest: 关闭或切换强制改密会话时必须清理敏感状态
+ok 19 - 关闭或切换强制改密会话时必须清理敏感状态
+  ---
+  duration_ms: 0.116827
+  type: 'test'
+  ...
+# Subtest: 密码规则状态提供明确的可访问公告文本
+ok 20 - 密码规则状态提供明确的可访问公告文本
+  ---
+  duration_ms: 0.077337
+  type: 'test'
+  ...
+# Subtest: 终止型改密失败返回登录页并保留服务端消息
+ok 21 - 终止型改密失败返回登录页并保留服务端消息
+  ---
+  duration_ms: 0.292131
+  type: 'test'
+  ...
+# Subtest: 400 和网络错误保留在弹窗内重试
+ok 22 - 400 和网络错误保留在弹窗内重试
+  ---
+  duration_ms: 0.312796
+  type: 'test'
+  ...
+# Subtest: 顶部主题按钮显示当前模式名称
+ok 23 - 顶部主题按钮显示当前模式名称
+  ---
+  duration_ms: 0.587941
+  type: 'test'
+  ...
+# Subtest: 顶部主题按钮图标跟随当前模式：深色月亮，浅色太阳
+ok 24 - 顶部主题按钮图标跟随当前模式：深色月亮，浅色太阳
+  ---
+  duration_ms: 0.114357
+  type: 'test'
+  ...
+# Subtest: 顶部切换按钮无障碍文案仍描述点击后的目标主题
+ok 25 - 顶部切换按钮无障碍文案仍描述点击后的目标主题
+  ---
+  duration_ms: 0.091218
+  type: 'test'
+  ...
+# Subtest: 顶部主题按钮在所有登录后页面显示，不再只绑定仪表盘
+ok 26 - 顶部主题按钮在所有登录后页面显示，不再只绑定仪表盘
+  ---
+  duration_ms: 0.110581
+  type: 'test'
+  ...
+# Subtest: 缺失或非法的持久化值回退到浅色主题
+ok 27 - 缺失或非法的持久化值回退到浅色主题
+  ---
+  duration_ms: 0.578606
+  type: 'test'
+  ...
+# Subtest: 存储读取异常时仍安全回退到浅色主题
+ok 28 - 存储读取异常时仍安全回退到浅色主题
+  ---
+  duration_ms: 0.131254
+  type: 'test'
+  ...
+# Subtest: 合法的 SOC 深色持久化值会被恢复
+ok 29 - 合法的 SOC 深色持久化值会被恢复
+  ---
+  duration_ms: 0.094893
+  type: 'test'
+  ...
+# Subtest: 应用主题会同步根节点属性和原生配色模式
+ok 30 - 应用主题会同步根节点属性和原生配色模式
+  ---
+  duration_ms: 0.09364
+  type: 'test'
+  ...
+1..30
+# tests 30
+# suites 0
+# pass 30
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 417.918468

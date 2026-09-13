@@ -11,6 +11,8 @@ PVE 内部测试的端点白名单、文本模型 / MinerU 的填写位置与写
 建议 PVE 内 Ubuntu/Debian VM。5 人试配起点为 4 vCPU、8 GB、80 GB 数据盘；根据解析页数、等待、RSS 与磁盘增长实测容量。固定 Node 22.23.2、npm 10.9.3、pnpm 10.17.1、PostgreSQL 16。基础镜像摘要写在 Dockerfile/Compose，运行目标带 tsx、Prisma Client、原生模块、LibreOffice 和中文字体；nginx 目标单独包含构建后的前端。
 
 1. 根 `.env.example` 复制为 `.env`，设置 URL-safe 随机 POSTGRES_PASSWORD、至少 32 位随机 JWT_SECRET。
+   `JWT_SECRET` 启动时会校验：低于 32 字符、或命中示例/占位词（如 `replace-with…`、`changeme`、`placeholder`）
+   会直接拒绝启动，避免把文档示例密钥带上生产。
 2. TLS_CERT_DIR 指向证书目录，包含 fullchain.pem/privkey.pem。部署管理员负责可信证书及续期，续期后 `docker compose exec nginx nginx -s reload`。只有 443 对外，证书可采用 DNS 验证。
 3. YIBIAO_PUBLIC_ORIGIN 为实际 HTTPS 站点。YIBIAO_INTERNAL_ENDPOINTS 填已批准的内部模型/企业网关 base URL，逗号分隔；空列表拒绝出网。YIBIAO_EXTERNAL_ENDPOINTS 还要求对应项目/共享域授权。公网图片与远程 Mermaid 不会作为自动回落路径。
 4. VITE_SOURCE_REPOSITORY_URL 指向当前修改版的可访问源码，BUILD_COMMIT 记录实际构建版本。前端变量为构建参数，修改后重建 nginx，不能只改 app 环境。
@@ -64,6 +66,12 @@ pnpm run db:docs:update --version 2026-09-08 --apply
 
 重启将正文任务置暂停，可人工继续；其他分析/目录/事实/检查及知识抽取明确中断、可重试，不承诺所有任务自动续跑。SIGTERM 停止接新任务、关闭 SSE、请求正文暂停并停止 Agent，35 秒兜底退出；Compose 留 45 秒宽限。强制终止后在下次启动恢复状态。
 
+取消语义：正在停止中的作业显示「取消中」，确认停下后才进入终态；取消会传导到解析子进程、资源队列与知识/模板抽取，取消后不再启动新的模型抽取。**已发送到外部服务的请求无法远端撤回**，只保证本地不再继续排队与发起后续请求。
+
+项目删除：项目仍存在排队/运行/取消中的后台作业时，删除请求返回 409，需先取消或等作业结束，避免后台任务在表被清空后继续写入。
+
+诊断与日志生命周期：AI 诊断记录与失败正文保留 7 天，服务每小时巡检清理一次（启动时先跑一次）；清理失败不影响请求，也不会删除有效原件。容器日志使用 `json-file` 轮转（10MB × 5）；如需调整，修改 `docker-compose.yml` 顶部的 `x-logging` 锚点即可。
+
 ## 同批备份与恢复
 
 备份目标应为独立磁盘或远端挂载；同 VM 目录仅用于开发演练。生产建议每日备份，保留 7 日份与 4 周份，升级前另备份。目标 RPO ≤ 24 小时、RTO ≤ 2 小时，实际是否达到以演练为准。目录 0700、文件限权，配置含密钥，应由部署方加密保管。
@@ -73,6 +81,11 @@ pnpm run db:docs:update --version 2026-09-08 --apply
 ```bash
 python3 deploy/backup/backup.py --env-file .env --destination /独立磁盘/yibiao
 ```
+
+要求 Python ≥ 3.11。脚本在**停止任何写入者之前**先预检：Python 版本；目标盘可用空间（≥ 当前 `/data` 体积 × 2.2，使用 `--save-images` 时另加 2 GiB）。
+预检不通过会在服务仍在运行时就拒绝退出，避免出现「已停服但没备份」的窗口。任一步骤失败会明确报告失败阶段
+（`preflight` / `stop-writers` / `dump-database` / `archive-data` / `manifest`），并恢复原先运行的服务。
+预检结果（Python 版本、数据体积、所需与可用空间）写入备份 manifest 的 `preflight` 字段。
 
 脚本停止 nginx/app，确认进程与后台写任务结束，再生成同一 backupId 的 database.dump、data.tar.gz、受保护配置、镜像/迁移信息和 SHA-256 manifest，最后恢复原先运行服务。没有完成 manifest 的失败目录不可恢复。
 
