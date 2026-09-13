@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fastify';
 import type { JwtPayload } from '../auth/middleware';
 import type { PrismaClient } from '@prisma/client';
-import { buildMerged, redactSecrets, saveAppConfig, saveUserConfig } from '../config/store';
+import { buildMerged, readAccessibleActiveProjectId, redactSecrets, saveAppConfig, saveUserConfig } from '../config/store';
 
 // 受保护路由（需登录）：真实配置读写。
 // GET  /api/config       → 合并 AppConfig+UserConfig 并归一化；全部角色脱敏 AI key
@@ -14,6 +14,7 @@ export async function configRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
     const user = (req as FastifyRequest & { user: JwtPayload }).user;
     const merged = await buildMerged(prisma, user.id);
     const config = redactSecrets(merged);
+    config.activeProjectId = await readAccessibleActiveProjectId(prisma, user.id, user.role);
     app.log.info({ username: user.username, role: user.role }, 'load config');
     return { config };
   });

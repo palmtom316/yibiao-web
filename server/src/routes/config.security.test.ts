@@ -13,8 +13,9 @@ test('admin/user config reads and writes never return secrets; empty keeps, mask
   const user = { id: 1, username: 'a', role: 'admin', status: 'active', mustChangePassword: false };
   const prisma = {
     user: { findUnique: async () => user },
+    project: { findUnique: async ({ where: { id } }: any) => (id === 42 ? { id: 42, ownerId: 1 } : null) },
     appConfig: { upsert: async () => ({ data }), update: async (args: any) => { data = args.data.data; return { data }; } },
-    userConfig: { upsert: async (args: any) => ({ data: userConfig.get(args.where.userId) || {} }), update: async (args: any) => { userConfig.set(args.where.userId, args.data.data); } },
+    userConfig: { upsert: async (args: any) => ({ data: userConfig.get(args.where.userId) || { activeProjectId: 42 } }), update: async (args: any) => { userConfig.set(args.where.userId, args.data.data); } },
   } as any;
   const app = Fastify(); t.after(() => app.close()); app.decorate('prisma', prisma);
   app.addHook('onRequest', createVerifyToken(prisma)); await app.register(configRoutes);
@@ -26,6 +27,7 @@ test('admin/user config reads and writes never return secrets; empty keeps, mask
       assert.equal(result.statusCode, 200);
       assert.equal(result.body.includes(secret), false);
       assert.equal(result.json().config.configured, true);
+      if (options.method === 'GET') assert.equal(result.json().config.activeProjectId, 42);
     }
   }
   assert.equal((await app.inject({ method: 'PUT', url: '/config', headers, payload: {} })).statusCode, 403, 'old admin token cannot bypass role change');

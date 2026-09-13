@@ -224,6 +224,8 @@ interface EditUserFormProps {
 }
 
 function EditUserForm({ target, onClose, onSaved, onError }: EditUserFormProps) {
+  const { data: userDirectory } = useQuery({ queryKey: ['users', 'all'], queryFn: () => fetchUsers() });
+  const lastActiveAdmin = (userDirectory?.users || []).filter((user) => user.role === 'admin' && user.status === 'active').length <= 1 && target.role === 'admin' && target.status === 'active';
   const [displayName, setDisplayName] = useState(target.displayName ?? '');
   const [department, setDepartment] = useState(target.department ?? '');
   const [role, setRole] = useState(target.role);
@@ -280,11 +282,12 @@ function EditUserForm({ target, onClose, onSaved, onError }: EditUserFormProps) 
         </label>
         <label className="user-mgmt-field">
           角色
-          <select value={role} onChange={(e) => setRole(e.target.value)}>
+          <select value={role} onChange={(e) => setRole(e.target.value)} disabled={lastActiveAdmin}>
             <option value="admin">管理员</option>
             <option value="user">普通用户</option>
           </select>
         </label>
+        {lastActiveAdmin ? <p className="user-mgmt-checkbox-hint">至少保留一名可用管理员，服务端也会拒绝将最后一名管理员降权、停用或删除。</p> : null}
 
         <div className="user-mgmt-checkbox-group">
           <span className="user-mgmt-checkbox-title">功能模块权限</span>

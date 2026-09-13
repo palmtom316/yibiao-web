@@ -12,6 +12,7 @@ import {
 import { setActiveProjectId } from '../shared/api/http';
 import { sseManager } from '../shared/api/sse';
 import { useConfig } from '../shared/api/config';
+import { resolveActiveProjectId } from './resolveActiveProject';
 
 interface ProjectContextValue {
   projects: Project[];
@@ -29,8 +30,8 @@ const ProjectContext = createContext<ProjectContextValue | null>(null);
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
-  const { data: config } = useConfig();
-  const { data: projects, isLoading: projectsLoading } = useQuery({
+  const { data: config, isLoading: configLoading, isError: configError } = useConfig();
+  const { data: projects, isLoading: projectsLoading, isError: projectsError } = useQuery({
     queryKey: ['projects'],
     queryFn: fetchProjects,
   });
@@ -41,33 +42,40 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [epoch, setEpoch] = useState(0);
   const resolvedRef = useRef(false);
 
-  // 首次解析：config 提示 → 首个项目 → null。仅跑一次。
   useEffect(() => {
     if (resolvedRef.current) return;
-    if (projectsLoading) return; // 等列表就绪
+    const resolved = resolveActiveProjectId({
+      projectsLoading: projectsLoading || (projectsError && !projects),
+      configLoading: configLoading || (configError && config === undefined),
+      configError,
+      projects,
+      hint: config?.activeProjectId,
+    });
+    if (!resolved.ready) return;
     resolvedRef.current = true;
-    const hint = config?.activeProjectId ?? null;
-    const valid = hint != null && list.some((p) => p.id === hint);
-    if (valid) {
-      setActiveId(hint);
-      return;
+    if (resolved.fallbackToFirst && resolved.id != null) {
+      void activateProject(resolved.id).catch(() => undefined);
     }
+    setActiveId(resolved.id ?? null);
+  }, [projectsLoading, projectsError, projects, configLoading, configError, config, config?.activeProjectId]);
+
+  useEffect(() => {
+    if (activeId === undefined || projectsLoading) return;
+    if (activeId != null && list.some((project) => project.id === activeId)) return;
     if (list.length > 0) {
-      const target = list[0].id;
-      // 提示缺失或失效：服务端落 activeProjectId，再切。
+      const target = list[0]!.id;
       void activateProject(target).catch(() => undefined);
       setActiveId(target);
       return;
     }
-    setActiveId(null);
-  }, [projectsLoading, list, config?.activeProjectId]);
+    if (activeId != null) setActiveId(null);
+  }, [activeId, list, projectsLoading]);
 
   // 应用 activeId 变更：模块变量 + SSE 重连 + 工作区查询失效重取。
   useEffect(() => {
     if (activeId === undefined) return;
     setActiveProjectId(activeId);
     sseManager.reconnect();
-    // 工作区数据按项目隔离；切项目后所有已挂载查询重取（header 已是新 projectId）。
     void qc.invalidateQueries();
     setEpoch((e) => e + 1);
   }, [activeId, qc]);
@@ -102,7 +110,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       projects: list,
       activeProjectId: activeId ?? null,
       activeProject: active,
-      loading: projectsLoading,
+      loading: projectsLoading || configLoading || activeId === undefined,
       resolved: activeId !== undefined,
       projectEpoch: epoch,
       switchTo,

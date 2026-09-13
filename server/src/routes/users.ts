@@ -5,8 +5,23 @@ import type { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { getUser } from '../auth/middleware';
 import { ASSIGNABLE_MODULE_IDS, parseModules } from '../auth/permissions';
+import { ApiError, type Database } from '../security/access';
 
 const VALID_ROLES = ['admin', 'user'];
+const LAST_ADMIN_MESSAGE = '至少保留一名可用管理员';
+
+async function assertRemainingActiveAdmin(tx: Database, userId: number, next: { role?: string; status?: string; deleting?: boolean }): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM users WHERE role = 'admin' AND status = 'active' FOR UPDATE`;
+  const current = await tx.user.findUnique({ where: { id: userId } });
+  if (!current) throw new ApiError(404, '用户不存在');
+  const nextRole = next.role ?? current.role;
+  const nextStatus = next.deleting ? 'deleted' : (next.status ?? current.status);
+  const remainsAdmin = nextRole === 'admin' && nextStatus === 'active';
+  if (current.role === 'admin' && current.status === 'active' && !remainsAdmin) {
+    const remaining = await tx.user.count({ where: { role: 'admin', status: 'active', id: { not: userId } } });
+    if (remaining === 0) throw new ApiError(409, LAST_ADMIN_MESSAGE);
+  }
+}
 
 function publicUser(u: any): any {
   return {
@@ -60,11 +75,19 @@ export async function userRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     const id = paramId(req);
     const me = getUser(req);
     if (id === me.id) return reply.code(400).send({ error: '不能停用自己的账号' });
-    const user = await prisma.user.findUnique({ where: { id } });
-    if (!user) return reply.code(404).send({ error: '用户不存在' });
-    if (user.status !== 'active') return reply.code(409).send({ error: '仅正常状态账户可停用' });
-    const updated = await prisma.user.update({ where: { id }, data: { status: 'disabled' } });
-    return { success: true, user: publicUser(updated) };
+    try {
+      const updated = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.findUnique({ where: { id } });
+        if (!user) throw new ApiError(404, '用户不存在');
+        if (user.status !== 'active') throw new ApiError(409, '仅正常状态账户可停用');
+        await assertRemainingActiveAdmin(tx, id, { status: 'disabled' });
+        return tx.user.update({ where: { id }, data: { status: 'disabled' } });
+      });
+      return { success: true, user: publicUser(updated) };
+    } catch (error) {
+      if (error instanceof ApiError) return reply.code(error.statusCode).send({ error: error.message });
+      throw error;
+    }
   });
 
   // POST /users/:id/enable → disabled→active
@@ -113,8 +136,16 @@ export async function userRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
       return reply.code(400).send({ error: '重置密码至少 8 位' });
     }
     if (!Object.keys(data).length) return reply.code(400).send({ error: '无待更新字段' });
-    const updated = await prisma.user.update({ where: { id }, data });
-    return { success: true, user: publicUser(updated) };
+    try {
+      const updated = await prisma.$transaction(async (tx) => {
+        await assertRemainingActiveAdmin(tx, id, { role: typeof data.role === 'string' ? data.role : undefined });
+        return tx.user.update({ where: { id }, data });
+      });
+      return { success: true, user: publicUser(updated) };
+    } catch (error) {
+      if (error instanceof ApiError) return reply.code(error.statusCode).send({ error: error.message });
+      throw error;
+    }
   });
 
   // DELETE /users/:id → 删除账户（禁删自己；admin 互删由前端确认）
@@ -122,9 +153,17 @@ export async function userRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     const id = paramId(req);
     const me = getUser(req);
     if (id === me.id) return reply.code(400).send({ error: '不能删除自己的账号' });
-    const user = await prisma.user.findUnique({ where: { id } });
-    if (!user) return reply.code(404).send({ error: '用户不存在' });
-    await prisma.user.delete({ where: { id } });
-    return { success: true, message: '账户已删除' };
+    try {
+      await prisma.$transaction(async (tx) => {
+        const user = await tx.user.findUnique({ where: { id } });
+        if (!user) throw new ApiError(404, '用户不存在');
+        await assertRemainingActiveAdmin(tx, id, { deleting: true });
+        await tx.user.delete({ where: { id } });
+      });
+      return { success: true, message: '账户已删除' };
+    } catch (error) {
+      if (error instanceof ApiError) return reply.code(error.statusCode).send({ error: error.message });
+      throw error;
+    }
   });
 }

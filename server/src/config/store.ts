@@ -77,6 +77,16 @@ async function readUserConfigRaw(prisma: PrismaClient, userId: number): Promise<
 }
 
 // 合并平台默认 + 个人覆盖，再走 normalizeConfig 派生扁平字段。保留真实 key（脱敏由调用方决定）。
+export async function readAccessibleActiveProjectId(prisma: PrismaClient, userId: number, role: string): Promise<number | null> {
+  const userRaw = await readUserConfigRaw(prisma, userId);
+  const hint = Number(userRaw.activeProjectId);
+  if (!Number.isSafeInteger(hint) || hint <= 0) return null;
+  const project = await prisma.project.findUnique({ where: { id: hint }, select: { id: true, ownerId: true } });
+  if (!project) return null;
+  if (project.ownerId !== userId && role !== 'admin') return null;
+  return project.id;
+}
+
 export async function buildMerged(prisma: PrismaClient, userId: number): Promise<any> {
   const appRaw = await readAppConfigRaw(prisma);
   const userRaw = await readUserConfigRaw(prisma, userId);
