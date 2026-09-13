@@ -4,6 +4,8 @@
 
 PVE 内部测试的端点白名单、文本模型 / MinerU 的填写位置与写入权限、部署前检查清单与已知缺口，见 [PVE 部署前：代码审核结论与部署设置](implementation/PVE-PRE-DEPLOY-2026-09-11.md)。
 
+2026-09-13 单人测试前的最新全仓复核见 [代码审核与优化意见](implementation/CODE-REVIEW-2026-09-13-PVE-SOLO.md)，实际执行步骤见 [PVE 单人系统测试清单](implementation/PVE-SOLO-TEST-2026-09-13.md)。新报告补充了处理出口、数据一致性、任务恢复和服务端依赖风险，并更正旧说明中外部模型列表测试的作用域条件；完整系统测试前优先处理所列 P1。
+
 ## Docker Compose
 
 建议 PVE 内 Ubuntu/Debian VM。5 人试配起点为 4 vCPU、8 GB、80 GB 数据盘；根据解析页数、等待、RSS 与磁盘增长实测容量。固定 Node 22.23.2、npm 10.9.3、pnpm 10.17.1、PostgreSQL 16。基础镜像摘要写在 Dockerfile/Compose，运行目标带 tsx、Prisma Client、原生模块、LibreOffice 和中文字体；nginx 目标单独包含构建后的前端。

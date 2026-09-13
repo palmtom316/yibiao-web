@@ -1,0 +1,100 @@
+{
+  "sourceCommit": "5a926ae64fc5983a3219bd3f9aa10cc113af144a",
+  "evidenceKind": "synthetic behavioral probes, not business acceptance",
+  "observations": [
+    {
+      "id": "R01-self-check-egress",
+      "status": "reproduced",
+      "allowlists": "both empty",
+      "authorizationChecks": 0,
+      "interceptedNetworkCalls": [
+        {
+          "url": "https://review.invalid/v1/chat/completions",
+          "authorizationPresent": true
+        },
+        {
+          "url": "https://review.invalid/v1/chat/completions",
+          "authorizationPresent": true
+        },
+        {
+          "url": "https://review.invalid/v1/chat/completions",
+          "authorizationPresent": true
+        }
+      ]
+    },
+    {
+      "id": "R02-external-model-list",
+      "status": "reproduced",
+      "projectAllowsExternalProcessing": true,
+      "validProjectHeader": true,
+      "scopeKinds": [
+        "administration",
+        "administration",
+        "administration"
+      ],
+      "sends": 0,
+      "httpStatus": 403,
+      "body": {
+        "success": false,
+        "message": "此数据域未获准使用该处理端点，请联系管理员"
+      }
+    },
+    {
+      "id": "R03-sse-clean-eof",
+      "status": "reproduced",
+      "gracefulEOF": true,
+      "fetchesAfterRetryIntervalAndStart": 1,
+      "managerStillStarted": true
+    },
+    {
+      "id": "R04-last-admin-demotion",
+      "status": "reproduced",
+      "onlyAccount": true,
+      "updateStatus": 200,
+      "roleAfter": "user",
+      "subsequentAdminRequest": 403
+    },
+    {
+      "id": "R05-stale-deviation-export",
+      "status": "reproduced",
+      "initialStatus": "stale",
+      "statusAfterConfirmation": "confirmed",
+      "sourceReads": 0,
+      "exportStatus": 200,
+      "exportedBytes": 9105
+    },
+    {
+      "id": "R06-import-database-failure",
+      "status": "reproduced",
+      "operation": "failed",
+      "workingCopyAfterFailure": "NEW WORKING COPY",
+      "oldPerSourceMarkdownStillExists": false,
+      "originalDocumentSourceBytes": "not part of this probe; immutable originals are retained by the separate source subsystem"
+    },
+    {
+      "id": "R07-task-error-persistence",
+      "status": "reproduced",
+      "unhandledRejection": "synthetic task persistence unavailable",
+      "defaultNode22Behavior": "process termination when no rejection handler is installed",
+      "probeInstalledTemporaryHandler": true
+    },
+    {
+      "id": "R08-duplicate-parse-queue",
+      "status": "reproduced",
+      "occupiedParseSlots": 1,
+      "configuredParseLimit": 1,
+      "producedWhileSlotOccupied": [
+        "a.md",
+        "b.md"
+      ],
+      "taskStatus": "success",
+      "input": "two tiny synthetic Markdown documents; no load or exhaustion test"
+    },
+    {
+      "id": "R09-active-project-config",
+      "status": "reproduced",
+      "persistedUserConfigProjectId": 42,
+      "returnedConfigContainsProjectId": false
+    }
+  ]
+}

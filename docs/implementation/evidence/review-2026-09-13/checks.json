@@ -1,0 +1,163 @@
+{
+  "date": "2026-09-13",
+  "sourceCommit": "5a926ae64fc5983a3219bd3f9aa10cc113af144a",
+  "environment": {
+    "host": "macOS x64",
+    "node": "22.23.2",
+    "npm": "10.9.3",
+    "pnpm": "10.17.1",
+    "postgres": "16-alpine, dedicated disposable Docker container",
+    "database": "127.0.0.1:55483/yibiao_test; each integration case creates and removes its own yibiao_test_* database"
+  },
+  "checks": [
+    {
+      "check": "server-runtime-audit",
+      "command": "node [pnpm-10.17.1-cli] audit --prod --json",
+      "directory": "server",
+      "exitCode": 1,
+      "seconds": 8.5,
+      "advisoryQuery": true
+    },
+    {
+      "check": "client-runtime-audit",
+      "command": "node [npm-10.9.3-cli] audit --omit=dev --json",
+      "directory": "client",
+      "exitCode": 0,
+      "seconds": 6.01,
+      "advisoryQuery": true
+    },
+    {
+      "check": "client-full-audit",
+      "command": "node [npm-10.9.3-cli] audit --json",
+      "directory": "client",
+      "exitCode": 1,
+      "seconds": 14.25,
+      "advisoryQuery": true
+    },
+    {
+      "check": "node-version",
+      "command": "node --version",
+      "directory": ".",
+      "exitCode": 0,
+      "seconds": 0.03,
+      "advisoryQuery": false
+    },
+    {
+      "check": "npm-version",
+      "command": "node [npm-10.9.3-cli] --version",
+      "directory": ".",
+      "exitCode": 0,
+      "seconds": 0.32,
+      "advisoryQuery": false
+    },
+    {
+      "check": "pnpm-version",
+      "command": "node [pnpm-10.17.1-cli] --version",
+      "directory": ".",
+      "exitCode": 0,
+      "seconds": 0.46,
+      "advisoryQuery": false
+    },
+    {
+      "check": "prisma-generate",
+      "command": "node node_modules/prisma/build/index.js generate",
+      "directory": "server",
+      "exitCode": 0,
+      "seconds": 2.51,
+      "advisoryQuery": false
+    },
+    {
+      "check": "server-typecheck",
+      "command": "node node_modules/typescript/bin/tsc --noEmit",
+      "directory": "server",
+      "exitCode": 0,
+      "seconds": 12.19,
+      "advisoryQuery": false
+    },
+    {
+      "check": "server-build",
+      "command": "node node_modules/typescript/bin/tsc -p tsconfig.json",
+      "directory": "server",
+      "exitCode": 0,
+      "seconds": 13.01,
+      "advisoryQuery": false
+    },
+    {
+      "check": "server-unit-tests",
+      "command": "node ../scripts/test.mjs --summary --report [temporary-evidence]/server-unit.tap",
+      "directory": "server",
+      "exitCode": 0,
+      "seconds": 14.18,
+      "advisoryQuery": false
+    },
+    {
+      "check": "server-integration-tests",
+      "command": "node ../scripts/test.mjs --integration --summary --report [temporary-evidence]/server-integration.tap",
+      "directory": "server",
+      "exitCode": 0,
+      "seconds": 31.7,
+      "advisoryQuery": false
+    },
+    {
+      "check": "review-probes",
+      "command": "node --import tsx ../docs/implementation/evidence/review-2026-09-13/probes.mts",
+      "directory": "server",
+      "exitCode": 0,
+      "seconds": 10.72,
+      "advisoryQuery": false
+    },
+    {
+      "check": "compose-config",
+      "command": "docker compose -p yibiao-review-preflight --env-file [temporary-evidence]/compose.env -f docker-compose.yml config --quiet",
+      "directory": ".",
+      "exitCode": 0,
+      "seconds": 0.49,
+      "advisoryQuery": false
+    },
+    {
+      "check": "client-typecheck",
+      "command": "node node_modules/typescript/bin/tsc --noEmit",
+      "directory": "client",
+      "exitCode": 0
+    },
+    {
+      "check": "client-build",
+      "command": "node node_modules/vite/bin/vite.js build",
+      "directory": "client",
+      "exitCode": 0,
+      "buildSeconds": 12.73
+    },
+    {
+      "check": "client-unit-tests",
+      "command": "node ../scripts/test.mjs --summary --report client-unit.tap",
+      "directory": "client",
+      "exitCode": 0,
+      "tests": 28,
+      "pass": 28,
+      "fail": 0
+    }
+  ],
+  "limitations": [
+    "No target PVE execution",
+    "No application Docker image build/up in this audit",
+    "No real model, MinerU credentials or customer documents",
+    "No full browser run",
+    "No .NET helper execution or target backup/restore rehearsal"
+  ],
+  "retries": [
+    {
+      "check": "dependency-install",
+      "reason": "Registry network failures and slow downloads; retried using existing cache; lockfiles unchanged"
+    },
+    {
+      "check": "server-integration-tests",
+      "firstResult": "11 discovery-level tests failed before accessing DB because the sandbox could not reach the test port",
+      "resolution": "Authorized run outside sandbox passed 15 tests including migration subtests"
+    },
+    {
+      "check": "review-probes",
+      "firstResult": "R02 expected exactly one authorization attempt, but implementation retries the same denied request 3 times",
+      "resolution": "Observation assertion accepts repeated administration scope attempts and records all of them; product code unchanged"
+    }
+  ]
+}

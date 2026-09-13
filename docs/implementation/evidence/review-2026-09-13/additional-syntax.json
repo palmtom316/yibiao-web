@@ -1,0 +1,27 @@
+{
+  "status": "passed",
+  "files": [
+    "client/src/app/systemNameFallbacks.test.mjs",
+    "client/src/shared/theme/theme-toggle-label.test.mjs",
+    "client/src/shared/theme/theme.test.mjs",
+    "deploy/backup/backup.py",
+    "deploy/backup/restore.py",
+    "deploy/pm2/ecosystem.config.example.cjs",
+    "scripts/test.mjs",
+    "server/scripts/baseline.mjs",
+    "server/scripts/initialize.mjs",
+    "server/src/document/doc2markdown/convert.mjs",
+    "server/src/document/documentParseErrors.cjs",
+    "server/src/document/parse-worker.mjs",
+    "server/src/illustrations/generation.test.cjs",
+    "server/src/illustrations/vendor/contentIllustrationGeneration.cjs",
+    "server/src/illustrations/vendor/contentIllustrationPlanning.cjs",
+    "server/src/illustrations/vendor/htmlLayoutProbe.cjs",
+    "server/src/illustrations/vendor/mermaidPolicy.cjs",
+    "server/src/illustrations/vendor/remoteImageRetry.cjs",
+    "server/src/illustrations/vendor/webImageRenderAdapter.cjs",
+    "server/src/tasks/vendor/outlineV2.cjs",
+    "server/src/tasks/vendor/outlineV2.test.cjs",
+    "server/src/verification/fixture-model.mjs"
+  ]
+}
