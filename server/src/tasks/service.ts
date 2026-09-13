@@ -548,34 +548,46 @@ export class TaskService {
       aiDiagnostics: this.deps.aiDiagnostics,
     };
 
-    // fire-and-forget：runner 自驱推进度，完成/失败各自 updateTask。
-    // 作用域冻结：runner 整个生命周期使用同一快照（P2-01）。
+    // fire-and-forget：runner 自驱推进度。终态持久化失败不能变成未处理拒绝。
+    const releaseTask = () => {
+      const aiWithQueue = this.deps.aiService as unknown as { resumeQueueScope?: (scope: string) => void };
+      if (aiWithQueue?.resumeQueueScope) aiWithQueue.resumeQueueScope(queueScopeId);
+      if (ps.activeTasks.get(type)?.task_id === task.task_id) ps.activeTasks.delete(type);
+      if (ps.activeTaskControls.get(type) === taskControl) ps.activeTaskControls.delete(type);
+    };
     Promise.resolve()
       .then(() => withProcessingScope(structuredClone(processingScope), () => runner(ctx)))
+      .then(async () => {
+        if (currentTask.status !== 'error') {
+          await this.deps.aiDiagnostics?.finishRun(task.diagnostic_trace_id!, {
+            status: currentTask.degraded ? 'degraded' : 'success', stage: 'complete', degraded: Boolean(currentTask.degraded),
+          });
+        }
+      })
       .catch(async (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         const diagnosticError = error as { diagnosticCode?: string; diagnosticStage?: string };
         await this.deps.aiDiagnostics?.finishRun(task.diagnostic_trace_id!, {
           status: 'error', stage: diagnosticError.diagnosticStage || 'complete',
           errorCode: diagnosticError.diagnosticCode || 'AI_UNKNOWN_ERROR', errorMessage: message,
-        });
-        const failedTask = await updateTask({ status: 'error', error: message || '任务执行失败' }, true);
-        ps.activeTasks.delete(type);
-        ps.activeTaskControls.delete(type);
-        return failedTask;
-      })
-      .then((finalTask) => {
-        // 成功路径：runner 已自行 updateTask({status:'success'})。确保内存清理。
-        void finalTask;
-        if (currentTask.status !== 'error') {
-          void this.deps.aiDiagnostics?.finishRun(task.diagnostic_trace_id!, {
-            status: currentTask.degraded ? 'degraded' : 'success', stage: 'complete', degraded: Boolean(currentTask.degraded),
+        }).catch(() => undefined);
+        try {
+          await updateTask({ status: 'error', error: message || '任务执行失败' }, true);
+        } catch (persistError) {
+          currentTask = { ...currentTask, status: 'error', error: message || '任务执行失败', updated_at: now() } as BackgroundTaskState;
+          console.error('[tasks] failed to persist error state', {
+            projectId, type, taskId: task.task_id,
+            runnerError: message,
+            persistError: persistError instanceof Error ? persistError.message : String(persistError),
           });
         }
-        const aiWithQueue = this.deps.aiService as unknown as { resumeQueueScope?: (scope: string) => void };
-        if (aiWithQueue?.resumeQueueScope) aiWithQueue.resumeQueueScope(queueScopeId);
-        ps.activeTasks.delete(type);
-        ps.activeTaskControls.delete(type);
+      })
+      .finally(() => { releaseTask(); })
+      .catch((error: unknown) => {
+        console.error('[tasks] background chain failed', {
+          projectId, type, taskId: task.task_id,
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
 
     return currentTask;
