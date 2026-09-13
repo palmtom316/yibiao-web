@@ -132,6 +132,47 @@
 
 ---
 
+## 二·补 状态、触发条件、修改文件、修复前证据与回退
+
+### 准确性状态（使用约定用语）
+
+| 编号 | 状态 |
+| --- | --- |
+| R01 | 已修复并验证（真实路由 + 被拦截网络发送；真实外部端点 外部条件缺失） |
+| R02 | 已修复并验证（同上；内部端点行为回归通过） |
+| R03 | 已修复并验证（重连策略与状态层）；浏览器级端到端 已实现待验证 |
+| R04 | 已修复并验证 |
+| R05 | 已修复并验证 |
+| R06 | 已修复并验证（回滚、幂等、并发导入）；三阶段崩溃注入 已实现待验证 |
+| R07 | 已修复并验证（子进程内验证默认 Node 22 行为） |
+| R08 | 已修复并验证（排队、共享并发预算、超限与取消）；原生库 RSS 峰值 外部条件缺失 |
+| R09 | 已修复并验证 |
+| R10 | 已修复并验证（真实 PostgreSQL 16） |
+| R11 | 已修复并验证（本地排队/解析/抽取/子进程）；远端撤回 外部条件缺失 |
+| R12 | 部分关闭：可升级项 已修复并验证；残留告警的隔离与限制 已实现待验证；Linux 镜像复核 外部条件缺失 |
+
+**是否属实**：R01–R12 **全部属实，无误报**，无需撤回项（与 2026-09-09 一轮的 P1-01 误报撤回不同）。
+R01–R09 由 `evidence/review-2026-09-13/probes.mts` 缺陷观察脚本复现；R10/R11 按任务书要求补了动态证据；R12 由两端审计输出复核。
+
+### 触发条件与修改文件
+
+| 编号 | 触发条件 | 主要修改文件 | 修复前证据 | 兼容/回退办法 |
+| --- | --- | --- | --- | --- |
+| R01 | 管理员触发自检（文本/流式/工具）；端点为外部或未授权 | `server/src/agent/pi/piSelfCheck.ts`、`routes/agent.ts`、`ai/service.ts`、`ai/retry.ts` | `evidence/review-2026-09-13/probe-results.json` | 无 schema/数据变更；回退＝还原为全局 `fetch`（会重新引入缺陷） |
+| R02 | 管理员拉取模型列表或测生图；项目未选/无权限/未开外部处理 | `server/src/routes/ai.ts`、`ai/service.ts`、`ai/retry.ts`、`client/.../SettingsPage.tsx`、`docs/DEPLOYMENT.md` | 同上（R02 探针） | 无 schema 变更；前端仅文案与禁用态 |
+| R03 | 服务端正常结束 SSE 流（重启/代理/空闲），或切项目、删项目、撤权 | `client/src/shared/api/sse.ts`、`ssePolicy.ts`、`app/ProjectContext.tsx`、`app/resolveActiveProject.ts` | 同上（SSE 观察探针） | 无数据变更；回退＝还原 `sse.ts`/`ProjectContext.tsx` |
+| R04 | 唯一管理员改自己角色/停用/删除；两个管理员并发降权 | `server/src/routes/users.ts`、`client/src/features/user-management/pages/UserManagementPage.tsx` | 审核报告 R04 + 代码路径核实 | 无 schema 变更；回退＝移除事务内 `FOR UPDATE` 校验（不建议） |
+| R05 | 确认/导出前招标来源被替换、标段变化或提取版本变化（不调 availability） | `server/src/response-deviation/store.ts`、`routes/response-deviation.ts` | `probe-results.json`（可用性探针） | 无 schema 变更；回退＝移除 `assertFreshSource` |
+| R06 | 导入中文件写入与数据库切换不同步；并发导入；切标段时后台任务在跑 | `server/src/technical-plan/store.ts`（staging 发布与切换） | 审核报告 R06 + 存储路径核实 | **保持旧路径与旧项目可读**；staging 为新增目录，无 migration；回退＝还原 `store.ts` |
+| R07 | runner 失败的同时数据库不可用（错误状态写入本身抛错） | `server/src/tasks/service.ts` | 审核报告 R07 + 未处理拒绝复现 | 无外部接口变更；回退＝还原 `tasks/service.ts` |
+| R08 | 查重处理大/多文件；唯一解析槽位被占用；文件超限或损坏 | `server/src/document/bounded-parse.ts`、`tasks/runners/duplicate-analysis.ts`、`tasks/utils/duplicateAnalysisHelpers.ts` | `probe-results.json`（查重绕过队列探针） | 查重正文引用由 base64 改为相对路径文件，下游读取仍走受权路径；无 migration；回退＝还原 runner |
+| R09 | 选择非首项项目后刷新/重新登录；两个初始化请求完成顺序变化；配置请求暂时失败 | `server/src/config/store.ts`、`routes/config.ts`、`client/src/app/ProjectContext.tsx`、`resolveActiveProject.ts` | 审核报告 R09 + 偏好只写不读核实 | `GET /config` **新增** `activeProjectId`（向后兼容，旧客户端忽略）；回退＝前端忽略该字段 |
+| R10 | 按项目编号筛选诊断；分页/日期参数非法；无匹配编号 | `server/src/ai-diagnostics/routes.ts`（查询与参数类型） | 审核报告 R10 + 字段错配核实 | 查询语义修正（`id` → `projectCode`）；回退＝还原 `routes.ts`（会恢复错误筛选） |
+| R11 | 排队中/执行中/解析完成未抽取/发布前取消；取消与成功竞态 | `server/src/jobs/service.ts`、`resources/queue.ts`、`knowledge-base/extraction.ts`、`knowledge-base/pipeline.ts`、`openxml/service.ts`、`openxml/fields.ts`、`routes/{jobs,knowledge-base,technical-plan,business-bid}.ts`、`document/sources.ts` | 审核报告 R11 + 取消路径核实 | 新增 `cancelling` 状态值（旧前端视其为非终态，不会误报完成）；无 migration；回退＝还原上述文件 |
+| R12 | 处理外部 PDF/Office/图片/ZIP；依赖公告 | `server/package.json`、`pnpm-lock.yaml`、`document/parser.ts`、`document/bounded-parse.ts`、`document/doc2markdown/convert.mjs`、`export/images.ts` | `evidence/review-2026-09-13/`（升级前 36 条审计）、审核报告 R12 表 | 可整体回退锁文件；进程隔离与魔数限制为代码内措施；**无 migration** |
+
+---
+
 ## 三、O01–O12 对照表
 
 | 编号 | 本轮处置 | 依据 / 证据 | 备注 |
