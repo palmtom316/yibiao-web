@@ -6,7 +6,7 @@
 //  - emitAiHttpErrorToWindows → 进程内订阅者（M1-P6 SSE 总线 fan-out）。
 //  - 生图（generateImage/saveGeneratedImage/downloadImage）延后到 M1-P5，此处不移植。
 //  - chat/requestJson 内部仍按 config.request_mode 走上游流式，但对外返回聚合后的完整字符串/JSON（与桌面 IPC 一致）。
-import { processingFetch, withConfigScope, withProcessingScope, currentProcessingScope } from '../security/processing';
+import { processingFetch, withConfigScope, withProcessingScope, currentProcessingScope, ProcessingDeniedError } from '../security/processing';
 import { runWithAiRetry, markAiRequestError, copyAiRequestErrorMeta } from './retry';
 import {
   copyAiHttpError,
@@ -162,6 +162,13 @@ function createHeaders(apiKey: any) {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${apiKey}`,
   };
+}
+
+function markRetryableUnlessDenied(error: any): never {
+  if (error instanceof ProcessingDeniedError || error?.retryable === false || error?.statusCode === 403) {
+    throw error;
+  }
+  throw markAiRequestError(error, { retryable: true });
 }
 
 function normalizeAnalyticsEndpointHost(baseUrl: any): string {
@@ -449,7 +456,7 @@ async function fetchChatCompletion(_app: any, config: any, body: any, options: {
       signal: (options.signal || (controller?.signal as AbortSignal | undefined)) as any,
     });
   } catch (error: any) {
-    throw markAiRequestError(error, { retryable: true });
+    markRetryableUnlessDenied(error);
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -772,7 +779,7 @@ export async function listModelsWithConfig(config: any): Promise<{ success: bool
       try {
         response = await processingFetch(`${trimBaseUrl(config.base_url)}/models`, { method: 'GET', headers: createHeaders(config.api_key) });
       } catch (error: any) {
-        throw markAiRequestError(error, { retryable: true });
+        markRetryableUnlessDenied(error);
       }
       await ensureOk(response, '获取模型列表失败');
       try {
@@ -801,7 +808,7 @@ async function fetchOpenAICompatibleImageResponse(baseUrl: string, apiKey: any, 
         method: 'POST', headers: createHeaders(apiKey), body: JSON.stringify(body), signal: options.signal as any,
       });
     } catch (error: any) {
-      throw markAiRequestError(error, { retryable: true });
+      markRetryableUnlessDenied(error);
     }
   };
   const response = await sendRequest(requestBody);
@@ -966,7 +973,7 @@ async function requestGoogleImageData(baseUrl: string, imageConfig: any, request
       method: 'POST', headers: createGoogleHeaders(imageConfig.api_key), body: JSON.stringify(requestBody), signal: options.signal as any,
     });
   } catch (error: any) {
-    throw markAiRequestError(error, { retryable: true });
+    markRetryableUnlessDenied(error);
   }
   await ensureOk(response, fallbackMessage, { source: 'google-image-model' });
   if (requestMode === 'stream') return readGoogleImageStream(response);

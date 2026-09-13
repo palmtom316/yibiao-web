@@ -1,5 +1,5 @@
-import { withProcessingScope } from '../security/processing';
-import { getProjectIdHeader } from '../auth/middleware';
+import { ProcessingDeniedError, withProcessingScope } from '../security/processing';
+import { createRequireProject, getProjectId, getProjectIdHeader } from '../auth/middleware';
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import type { JwtPayload } from '../auth/middleware';
@@ -50,9 +50,20 @@ export async function agentRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
       return { success: false, message: 'Agent sidecar 未初始化，无法运行自检' };
     }
     try {
-      const report = await withProcessingScope({ kind: 'administration', userId: user.id }, () => agentService.runSelfCheck!());
+      const header = getProjectIdHeader(req);
+      let scope: { kind: 'administration'; userId: number } | { kind: 'project'; projectId: number; userId: number } = { kind: 'administration', userId: user.id };
+      if (header) {
+        await createRequireProject(prisma!)(req, reply);
+        if (reply.sent) return;
+        scope = { kind: 'project', projectId: getProjectId(req), userId: user.id };
+      }
+      const report = await withProcessingScope(scope, () => agentService.runSelfCheck!());
       return { success: true, report };
     } catch (err) {
+      if (err instanceof ProcessingDeniedError) {
+        reply.code(403);
+        return { success: false, message: err.message };
+      }
       reply.code(500);
       return { success: false, message: err instanceof Error ? err.message : String(err) };
     }

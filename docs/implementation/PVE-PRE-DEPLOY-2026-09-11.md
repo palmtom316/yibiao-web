@@ -172,17 +172,15 @@ throw new ProcessingDeniedError('此数据域未获准使用该处理端点，�
 
 **排障注意：** 拒绝消息是固定文案，**不含被拒绝的 URL**，第一次配白名单需要对照日志推断命中点。
 
-### 4.1 「测试 / 拉取」按钮的前置条件（容易踩）
+### 4.1 「测试 / 拉取」按钮的前置条件
 
-`server/src/routes/ai.ts` 的 `preHandler`：`/ai/chat`、`/ai/request-json` 要求项目作用域；`/ai/list-models`、`/ai/test-image-model` 要求管理员。
-
-而 `/ai/*` 的项目作用域来自 **`X-Project-Id` 请求头**（`stampProjectId` → `getProjectIdHeader`）。客户端由 `client/src/shared/api/http.ts:44` 从「当前活跃项目」注入。**没有活跃项目时**，服务端回落为 `{kind:'administration'}`，`processing-authorizer.ts` 对该域的 `allowExternal` 恒为 `false`。
+`server/src/routes/ai.ts` 的 `preHandler`：`/ai/chat`、`/ai/request-json`、`/ai/list-models`、`/ai/test-image-model` 都要求已验证的项目作用域；后两个额外要求管理员。项目作用域来自 **`X-Project-Id`**，由 `createRequireProject` 校验归属后再绑定，不能只写 SSE 项目戳。`processing-authorizer.ts` 对 `administration` 的 `allowExternal` 仍为 false，因此外部端点必须走已授权项目。
 
 > 因此设置页的「测试」和「拉取」要成功，四个条件同时成立：
 > 1. 用**管理员**账号；
-> 2. 页面已**选中一个项目**（有 `X-Project-Id`）；
-> 3. 该项目 `allowExternalProcessing = true`；
-> 4. 目标 host 在 `YIBIAO_EXTERNAL_ENDPOINTS`（或为 internal 名单）。
+> 2. 页面已**选中一个有权访问的项目**（有有效 `X-Project-Id`）；
+> 3. 该项目 `allowExternalProcessing = true`（外部端点）或目标在 `YIBIAO_INTERNAL_ENDPOINTS`；
+> 4. 目标 host 在对应白名单中。权限拒绝不会重试。
 
 ---
 

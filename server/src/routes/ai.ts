@@ -28,10 +28,14 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
   }
 
   app.addHook('preHandler', async (req, reply) => {
-    if (req.url.split('?')[0].endsWith('/chat') || req.url.split('?')[0].endsWith('/request-json')) {
-      await createRequireProject(prisma)(req, reply);
-    } else if ((req as FastifyRequest & { user: JwtPayload }).user.role !== 'admin') {
+    const path = req.url.split('?')[0];
+    const adminProbe = path.endsWith('/list-models') || path.endsWith('/test-image-model');
+    if (adminProbe && (req as FastifyRequest & { user: JwtPayload }).user.role !== 'admin') {
       return reply.code(403).send({ error: '仅管理员可测试处理端点' });
+    }
+    if (adminProbe || path.endsWith('/chat') || path.endsWith('/request-json')) {
+      await createRequireProject(prisma)(req, reply);
+      if (reply.sent) return;
     }
   });
 

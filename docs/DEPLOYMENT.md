@@ -4,7 +4,7 @@
 
 PVE 内部测试的端点白名单、文本模型 / MinerU 的填写位置与写入权限、部署前检查清单与已知缺口，见 [PVE 部署前：代码审核结论与部署设置](implementation/PVE-PRE-DEPLOY-2026-09-11.md)。
 
-2026-09-13 单人测试前的最新全仓复核见 [代码审核与优化意见](implementation/CODE-REVIEW-2026-09-13-PVE-SOLO.md)，实际执行步骤见 [PVE 单人系统测试清单](implementation/PVE-SOLO-TEST-2026-09-13.md)。新报告补充了处理出口、数据一致性、任务恢复和服务端依赖风险，并更正旧说明中外部模型列表测试的作用域条件；完整系统测试前优先处理所列 P1。
+2026-09-13 单人测试前的最新全仓复核见 [代码审核与优化意见](implementation/CODE-REVIEW-2026-09-13-PVE-SOLO.md)，实际执行步骤见 [PVE 单人系统测试清单](implementation/PVE-SOLO-TEST-2026-09-13.md)。模型列表、生图测试和 Agent 自检与文本聊天共用已验证项目作用域和 `processingFetch`；外部端点仍需项目外部处理开关，权限拒绝立即返回。完整系统测试前优先处理所列 P1。
 
 ## Docker Compose
 

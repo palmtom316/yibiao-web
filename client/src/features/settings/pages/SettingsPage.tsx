@@ -1583,7 +1583,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>模型名称</strong>
-                <span>可手动录入，也可从当前 Base URL 拉取可用模型</span>
+                <span>可手动录入，也可从当前 Base URL 拉取可用模型。拉取和连通性测试走当前项目的处理出口：需管理员、已选项目，外部端点还要打开该项目的外部处理开关</span>
               </div>
               <div className="settings-control-with-action">
                 {textModels.length > 0 ? (

@@ -12,6 +12,7 @@ import { spawnSync } from 'node:child_process';
 import { PI_RETRY_ERROR_NORMALIZER_PATH } from './piRetryErrorNormalizer';
 import type { PreparedPiEnvironment } from './piEnvironment';
 import type { AgentPiLayout } from '../../document/paths';
+import { processingFetch } from '../../security/processing';
 
 export const EXPECTED_PI_TOOLS = ['read', 'bash', 'edit', 'write', 'find', 'ls', 'json-validation', 'ask-user'];
 // web 用系统安装的工具；关键命令缺失即判失败（agent 将降级）。
@@ -451,7 +452,7 @@ async function runTextModelProbe(config: PiSelfCheckConfig, options: { id: strin
       ];
     }
 
-    const response = await fetch(`${trimBaseUrl(config.base_url)}/chat/completions`, {
+    const response = await processingFetch(`${trimBaseUrl(config.base_url)}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

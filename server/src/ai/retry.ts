@@ -115,6 +115,9 @@ export function isRetryableAiRequestError(error: any): boolean {
   if (!error || error?.code === 'AI_QUEUE_SCOPE_PAUSED') {
     return false;
   }
+  if (error.retryable === false || error.statusCode === 403) {
+    return false;
+  }
   if (error.aiRequestRetryable === false) {
     return false;
   }
