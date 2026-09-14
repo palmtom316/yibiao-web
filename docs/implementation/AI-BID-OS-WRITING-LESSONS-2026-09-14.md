@@ -1,6 +1,6 @@
 # 对照 `ai_bid_os`：可借鉴的编写质量机制
 
-编制：2026-09-14。对照仓库：`/home/palmtom/projects/ai_bid_os`（本机目录名是下划线）。本仓库基线：`yibiao-web` `main` @ `b433ac0`。配套：投标实务审查 [BID-EXPERT-REVIEW-2026-09-14](BID-EXPERT-REVIEW-2026-09-14.md)。
+编制：2026-09-14。对照仓库：`/home/palmtom/projects/ai_bid_os`（本机目录名是下划线）。本仓库基线：`yibiao-web` `main` @ `b433ac0`。配套：投标实务审查 [BID-EXPERT-REVIEW-2026-09-14](BID-EXPERT-REVIEW-2026-09-14.md)；改造初步方案 [AI-BID-OS-TRANSFORMATION-PLAN-2026-09-14](AI-BID-OS-TRANSFORMATION-PLAN-2026-09-14.md)。
 
 **目的**：只回答“为提高**技术标编写质量**，yibiao-web 该学什么、不该整段搬什么”。不评价两边的产品形态优劣，也不把 `ai_bid_os` 的国网施工默认蓝图当成易标的默认大纲。
 
@@ -185,3 +185,5 @@ parse（块级原文）
 易标若只从对方仓库吸收四样：响应矩阵确认门、分析项原文定位、叶节点写作任务（取代 3000 字扩写）、导出前评分闭合 + 去套话扫描——技术标就会从“能写长”转向“能指出这段在答哪一条”。方法卡、蓝图、digest 审查可以第二批再做。
 
 不吸收：vault 架构、国网默认大纲、综合评分、把知识库整篇继续灌进提示词。
+
+落到易标流水线节点上的改造初步方案（商务走易标、技术接入契约、解析/成稿质量分层）见 [AI-BID-OS-TRANSFORMATION-PLAN-2026-09-14](AI-BID-OS-TRANSFORMATION-PLAN-2026-09-14.md)。

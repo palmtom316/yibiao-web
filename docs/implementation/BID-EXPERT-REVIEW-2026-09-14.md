@@ -270,6 +270,7 @@
 - 本审查**不修改** [STATUS](STATUS.md) 的 DONE/BLOCKED。P1/P3 因真实服务与样本 BLOCKED 的项，仍然是产品能力的上限。  
 - 2026-09-13 的 R01–R12 修复（处理出口、导入 staging、取消、查重隔离、偏离表 stale 等）对投标纪律是加分项，尤其是“失败不覆盖原件/成功版本”。  
 - 商务路径已经实现的“原文定位、人工确认、快照复制、正式/草稿分流”，应视为技术标和审核路径的**内部设计规范**，而不是商务模块的特例。
+- 将本审查与 [AI-BID-OS-WRITING-LESSONS-2026-09-14](AI-BID-OS-WRITING-LESSONS-2026-09-14.md) 收成改造初步方案见 [AI-BID-OS-TRANSFORMATION-PLAN-2026-09-14](AI-BID-OS-TRANSFORMATION-PLAN-2026-09-14.md)。
 
 ---
 
